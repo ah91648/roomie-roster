@@ -1,0 +1,100 @@
+[
+  {
+    "id": 1,
+    "item_name": "Coffee Beans",
+    "estimated_price": 15.99,
+    "brand_preference": "Blue Bottle",
+    "notes": "Running low on morning coffee - need by this weekend",
+    "requested_by": 2,
+    "requested_by_name": "Michael",
+    "date_requested": "2025-07-19T09:30:00.000000",
+    "status": "approved",
+    "approvals": [
+      {
+        "approved_by": 1,
+        "approved_by_name": "Christine",
+        "approval_status": "approved",
+        "approval_date": "2025-07-19T10:15:00.000000",
+        "notes": "Good choice, we definitely need this"
+      },
+      {
+        "approved_by": 3,
+        "approved_by_name": "Joss",
+        "approval_status": "approved",
+        "approval_date": "2025-07-19T01:07:14.482507",
+        "notes": "Yes, we need good coffee\\!"
+      }
+    ],
+    "approval_threshold": 2,
+    "auto_approve_under": 10.0,
+    "final_decision_date": "2025-07-19T01:07:14.482573",
+    "final_decision_by": 3,
+    "final_decision_by_name": "Joss"
+  },
+  {
+    "id": 2,
+    "item_name": "Fancy Olive Oil",
+    "estimated_price": 45.0,
+    "brand_preference": "Extra Virgin Cold Pressed",
+    "notes": "Want to try this expensive brand I saw on TV",
+    "requested_by": 4,
+    "requested_by_name": "Alexis",
+    "date_requested": "2025-07-19T11:00:00.000000",
+    "status": "declined",
+    "approvals": [
+      {
+        "approved_by": 1,
+        "approved_by_name": "Christine",
+        "approval_status": "declined",
+        "approval_date": "2025-07-19T11:30:00.000000",
+        "notes": "Too expensive for household budget"
+      },
+      {
+        "approved_by": 3,
+        "approved_by_name": "Joss",
+        "approval_status": "declined",
+        "approval_date": "2025-07-19T12:00:00.000000",
+        "notes": "We have olive oil already"
+      }
+    ],
+    "approval_threshold": 2,
+    "auto_approve_under": 10.0,
+    "final_decision_date": "2025-07-19T12:00:00.000000",
+    "final_decision_by": 3,
+    "final_decision_by_name": "Joss"
+  },
+  {
+    "id": 3,
+    "item_name": "Toilet Paper",
+    "estimated_price": 8.5,
+    "brand_preference": "Charmin",
+    "notes": "We're almost out",
+    "requested_by": 3,
+    "requested_by_name": "Joss",
+    "date_requested": "2025-07-19T08:00:00.000000",
+    "status": "auto-approved",
+    "approvals": [],
+    "approval_threshold": 2,
+    "auto_approve_under": 10.0,
+    "final_decision_date": "2025-07-19T08:00:00.000000",
+    "final_decision_by": null,
+    "final_decision_by_name": "System Auto-Approval"
+  },
+  {
+    "id": 4,
+    "item_name": "Test Auto-Approve Item",
+    "estimated_price": 5.0,
+    "brand_preference": "Any",
+    "notes": "Should auto-approve and add to shopping list",
+    "requested_by": 1,
+    "requested_by_name": "Christine",
+    "date_requested": "2025-07-19T01:06:59.087161",
+    "status": "auto-approved",
+    "approvals": [],
+    "approval_threshold": 2,
+    "auto_approve_under": 10.0,
+    "final_decision_date": "2025-07-19T01:06:59.087210",
+    "final_decision_by": null,
+    "final_decision_by_name": "System Auto-Approval"
+  }
+]

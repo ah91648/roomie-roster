@@ -1,0 +1,93 @@
+[
+  {
+    "id": 2,
+    "name": "Take out Trash",
+    "frequency": "daily",
+    "type": "random",
+    "points": 3,
+    "sub_chores": [
+      {
+        "id": 1,
+        "name": "Collect trash from all rooms",
+        "completed": false
+      },
+      {
+        "id": 2,
+        "name": "Replace trash bags",
+        "completed": false
+      },
+      {
+        "id": 3,
+        "name": "Take bags to outdoor bin",
+        "completed": false
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "name": "Empty diswasher/drying rack",
+    "frequency": "daily",
+    "type": "predefined",
+    "points": 10,
+    "sub_chores": [
+      {
+        "id": 1,
+        "name": "Remove clean dishes from dishwasher",
+        "completed": false
+      },
+      {
+        "id": 2,
+        "name": "Put dishes away in cabinets",
+        "completed": false
+      },
+      {
+        "id": 3,
+        "name": "Wipe down dishwasher interior",
+        "completed": false
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "name": "Wash Dishes",
+    "frequency": "daily",
+    "type": "predefined",
+    "points": 7,
+    "sub_chores": [
+      {
+        "id": 1,
+        "name": "Scrape and rinse dishes",
+        "completed": false
+      },
+      {
+        "id": 2,
+        "name": "Load dishwasher or wash by hand",
+        "completed": false
+      },
+      {
+        "id": 3,
+        "name": "Clean sink and counter",
+        "completed": false
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "name": "Take out Recyling",
+    "frequency": "weekly",
+    "type": "predefined",
+    "points": 7,
+    "sub_chores": [
+      {
+        "id": 1,
+        "name": "Sort recyclables properly",
+        "completed": false
+      },
+      {
+        "id": 2,
+        "name": "Take recycling bin to curb",
+        "completed": false
+      }
+    ]
+  }
+]

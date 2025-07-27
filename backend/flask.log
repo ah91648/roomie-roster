@@ -1,0 +1,26 @@
+🏠 Starting RoomieRoster API...
+📍 API will be available at: http://localhost:5002
+🔍 Health check: http://localhost:5002/api/health
+📊 Initializing data handler...
+✅ Data loaded: 4 chores, 4 roommates
+🚀 Starting Flask server...
+ * Serving Flask app 'app'
+ * Debug mode: on
+2025-07-19 00:32:53,486 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5002
+ * Running on http://192.168.12.24:5002
+2025-07-19 00:32:53,486 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5002
+ * Running on http://192.168.12.24:5002
+2025-07-19 00:32:53,486 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-07-19 00:32:53,486 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-07-19 00:33:29,439 - werkzeug - INFO - 127.0.0.1 - - [19/Jul/2025 00:33:29] "GET /api/shopping-list/metadata HTTP/1.1" 200 -
+2025-07-19 00:33:29,439 - werkzeug - INFO - 127.0.0.1 - - [19/Jul/2025 00:33:29] "GET /api/shopping-list/metadata HTTP/1.1" 200 -
+2025-07-19 00:33:44,082 - werkzeug - INFO - 127.0.0.1 - - [19/Jul/2025 00:33:44] "[35m[1mPOST /api/shopping-list HTTP/1.1[0m" 201 -
+2025-07-19 00:33:44,082 - werkzeug - INFO - 127.0.0.1 - - [19/Jul/2025 00:33:44] "[35m[1mPOST /api/shopping-list HTTP/1.1[0m" 201 -
+2025-07-19 00:33:52,239 - werkzeug - INFO - 127.0.0.1 - - [19/Jul/2025 00:33:52] "GET /api/shopping-list/metadata HTTP/1.1" 200 -
+2025-07-19 00:33:52,239 - werkzeug - INFO - 127.0.0.1 - - [19/Jul/2025 00:33:52] "GET /api/shopping-list/metadata HTTP/1.1" 200 -
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/multiprocessing/resource_tracker.py:254: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

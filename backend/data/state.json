@@ -1,0 +1,56 @@
+{
+  "last_run_date": "2025-07-19T20:44:18.970785",
+  "predefined_chore_states": {
+    "1": 2,
+    "4": 4,
+    "5": 1,
+    "6": 2
+  },
+  "global_predefined_rotation": 0,
+  "current_assignments": [
+    {
+      "chore_id": 2,
+      "chore_name": "Take out Trash",
+      "roommate_id": 3,
+      "roommate_name": "Joss",
+      "assigned_date": "2025-07-19T20:44:18.970785",
+      "due_date": "2025-07-20T20:44:18.970785",
+      "frequency": "daily",
+      "type": "random",
+      "points": 3
+    },
+    {
+      "chore_id": 5,
+      "chore_name": "Wash Dishes",
+      "roommate_id": 1,
+      "roommate_name": "Christine",
+      "assigned_date": "2025-07-19T20:44:18.970785",
+      "due_date": "2025-07-20T20:44:18.970785",
+      "frequency": "daily",
+      "type": "predefined",
+      "points": 7
+    },
+    {
+      "chore_id": 6,
+      "chore_name": "Take out Recyling",
+      "roommate_id": 2,
+      "roommate_name": "Angel",
+      "assigned_date": "2025-07-19T20:44:18.970785",
+      "due_date": "2025-07-26T20:44:18.970785",
+      "frequency": "weekly",
+      "type": "predefined",
+      "points": 7
+    },
+    {
+      "chore_id": 4,
+      "chore_name": "Empty diswasher/drying rack",
+      "roommate_id": 4,
+      "roommate_name": "Alexis",
+      "assigned_date": "2025-07-19T20:44:18.970785",
+      "due_date": "2025-07-20T20:44:18.970785",
+      "frequency": "daily",
+      "type": "predefined",
+      "points": 10
+    }
+  ]
+}
