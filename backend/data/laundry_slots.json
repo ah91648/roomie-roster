@@ -1,0 +1,36 @@
+[
+  {
+    "id": 1,
+    "roommate_id": 1,
+    "roommate_name": "Christine",
+    "date": "2025-07-19",
+    "time_slot": "10:00-12:00",
+    "duration_hours": 2,
+    "load_type": "darks",
+    "status": "scheduled",
+    "machine_type": "washer",
+    "estimated_loads": 2,
+    "actual_loads": 0,
+    "notes": "Heavy jeans and dark clothes",
+    "created_date": "2025-07-19T08:30:00.000000",
+    "completed_date": null,
+    "reminder_sent": false
+  },
+  {
+    "id": 2,
+    "roommate_id": 2,
+    "roommate_name": "Angel",
+    "date": "2025-07-19",
+    "time_slot": "14:00-16:00",
+    "duration_hours": 2,
+    "load_type": "lights",
+    "status": "scheduled",
+    "machine_type": "washer",
+    "estimated_loads": 1,
+    "actual_loads": 0,
+    "notes": "Whites and light colors",
+    "created_date": "2025-07-19T09:15:00.000000",
+    "completed_date": null,
+    "reminder_sent": false
+  }
+]
