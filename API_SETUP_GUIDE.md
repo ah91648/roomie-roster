@@ -459,13 +459,11 @@ git push -u origin main
    - **Key:** `ROOMIE_WHITELIST`
    - **Value:** [Your 4 roommate emails separated by commas: `john@gmail.com,jane@gmail.com,bob@gmail.com,alice@gmail.com`]
 
-   **Variable 5:**
-   - **Key:** `PORT`
-   - **Value:** `10000`
-
-   **Variable 6:**
+   **Variable 5 (Optional):**
    - **Key:** `PYTHON_VERSION`
    - **Value:** `3.9.16`
+
+   **⚠️ Important:** Do NOT set a `PORT` environment variable - Render handles this automatically!
 
 3. **Click "Create Web Service"**
 
@@ -602,6 +600,22 @@ After deploying to Render:
 - Verify your build command and start command in Render settings
 - Look at the deployment logs for specific error messages
 - Ensure your `requirements.txt` file is in the `backend/` directory
+
+**"Port scan timeout reached, failed to detect open port 10000" Error:**
+- This is the most common deployment error for Flask apps on Render
+- **Root Cause:** Your Flask app isn't binding to the correct port that Render expects
+
+**Step-by-Step Fix:**
+1. **Go to your Render dashboard**
+2. **Click on your web service**
+3. **Go to Environment tab**
+4. **Look for a `PORT` environment variable**
+5. **If you see `PORT = 10000`, DELETE IT** (click the trash icon)
+6. **Click "Save Changes"**
+7. **Your app will automatically redeploy**
+8. **Wait 3-5 minutes for the new deployment**
+
+**Why this works:** Render automatically sets the `PORT` environment variable to 10000. When you manually set it, it can cause conflicts. Your updated Flask app now reads Render's automatic `PORT` variable correctly.
 
 **"Build Failed" Error:**
 - Check that your `requirements.txt` file has all necessary dependencies

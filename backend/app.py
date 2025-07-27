@@ -1515,7 +1515,7 @@ def serve(path):
 if __name__ == '__main__':
     try:
         # Get port from environment variable, default to 5000
-        port = int(os.getenv('FLASK_RUN_PORT', 5000))
+        port = int(os.getenv('PORT', os.getenv('FLASK_RUN_PORT', 5000)))
         
         print("🏠 Starting RoomieRoster API...", flush=True)
         print(f"📍 API will be available at: http://localhost:{port}", flush=True)
@@ -1537,7 +1537,7 @@ if __name__ == '__main__':
         sys.exit(1)
     except OSError as e:
         if "Address already in use" in str(e):
-            port = int(os.getenv('FLASK_RUN_PORT', 5000))
+            port = int(os.getenv('PORT', os.getenv('FLASK_RUN_PORT', 5000)))
             print(f"❌ Port {port} is already in use", file=sys.stderr, flush=True)
             print(f"Please stop the service using port {port} or use a different port", file=sys.stderr, flush=True)
         else:
