@@ -43,7 +43,7 @@ test.describe('Roommate Management', () => {
     await page.waitForSelector('.roommate-card');
     
     // Click edit button
-    await page.click('button', { hasText: 'Edit' }');
+    await page.click('button', { hasText: 'Edit' });
     
     // Edit the name
     const editInput = page.locator('.edit-mode input');
