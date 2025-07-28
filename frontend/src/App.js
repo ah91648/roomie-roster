@@ -28,6 +28,14 @@ function MainApp() {
     isConfigured 
   } = useAuth();
 
+  // Handle keyboard navigation for tabs
+  const handleTabKeyPress = (event, tabId) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setActiveTab(tabId);
+    }
+  };
+
   useEffect(() => {
     checkAppHealth();
   }, []);
@@ -142,24 +150,54 @@ function MainApp() {
       </header>
 
       <nav className="app-nav">
-        <div className="nav-tabs">
-          {tabs.map(tab => {
-            // Hide auth-required tabs for non-authenticated users
-            if (tab.authRequired && !isAuthenticated) {
-              return null;
-            }
-            
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
-              >
-                <span className="tab-icon">{tab.icon}</span>
-                <span className="tab-label">{tab.label}</span>
-              </button>
-            );
-          })}
+        <div className="nav-container">
+          <button 
+            className="nav-scroll-btn nav-scroll-left"
+            onClick={() => {
+              const navTabs = document.querySelector('.nav-tabs');
+              navTabs.scrollBy({ left: -200, behavior: 'smooth' });
+            }}
+            aria-label="Scroll left"
+          >
+            ‹
+          </button>
+          
+          <div className="nav-tabs">
+            {tabs.map(tab => {
+              // Hide auth-required tabs for non-authenticated users
+              if (tab.authRequired && !isAuthenticated) {
+                return null;
+              }
+              
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  onKeyPress={(e) => handleTabKeyPress(e, tab.id)}
+                  className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
+                  role="tab"
+                  aria-selected={activeTab === tab.id}
+                  aria-controls={`${tab.id}-panel`}
+                  tabIndex={activeTab === tab.id ? 0 : -1}
+                  title={tab.label}
+                >
+                  <span className="tab-icon" aria-hidden="true">{tab.icon}</span>
+                  <span className="tab-label">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          
+          <button 
+            className="nav-scroll-btn nav-scroll-right"
+            onClick={() => {
+              const navTabs = document.querySelector('.nav-tabs');
+              navTabs.scrollBy({ left: 200, behavior: 'smooth' });
+            }}
+            aria-label="Scroll right"
+          >
+            ›
+          </button>
         </div>
       </nav>
 
@@ -170,7 +208,7 @@ function MainApp() {
       </main>
 
       <footer className="app-footer">
-        <p>RoomieRoster - Fair chore distribution for happy households (v2.0)</p>
+        <p>RoomieRoster - Fair chore distribution for happy households (v2.1 - Enhanced Navigation)</p>
       </footer>
 
       {/* Roommate Linking Modal */}
