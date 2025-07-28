@@ -170,7 +170,7 @@ function MainApp() {
       </main>
 
       <footer className="app-footer">
-        <p>RoomieRoster - Fair chore distribution for happy households</p>
+        <p>RoomieRoster - Fair chore distribution for happy households (v2.0)</p>
       </footer>
 
       {/* Roommate Linking Modal */}
