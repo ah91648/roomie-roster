@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 14
+    },
+    "auditLog": "/Users/angel/Desktop/vscode python/vscode python/MISC/Chores/logs/.5f19d63eca3616dc3bb44d89ccf1083365dc2d6f-audit.json",
+    "files": [
+        {
+            "date": 1753816636189,
+            "name": "/Users/angel/Desktop/vscode python/vscode python/MISC/Chores/logs/mcp-puppeteer-2025-07-29.log",
+            "hash": "03c27bfa1657eec200ccef7f162bd35a12e3ac4d774b1b4b722a88eae28bf6ae"
+        }
+    ],
+    "hashType": "sha256"
+}
