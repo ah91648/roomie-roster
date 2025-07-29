@@ -71,9 +71,18 @@ const LaundryScheduler = () => {
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
+    
+    let processedValue = value;
+    if (type === 'number') {
+      processedValue = parseInt(value) || 0;
+    } else if (name === 'roommate_id') {
+      // Always convert roommate_id to integer
+      processedValue = parseInt(value) || '';
+    }
+    
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'number' ? parseInt(value) || 0 : value
+      [name]: processedValue
     }));
 
     // Auto-fill roommate name when roommate is selected
@@ -98,11 +107,25 @@ const LaundryScheduler = () => {
     try {
       setError(null);
       
+      // Prepare data with proper types
+      const submitData = {
+        ...formData,
+        roommate_id: parseInt(formData.roommate_id),
+        estimated_loads: parseInt(formData.estimated_loads) || 1,
+        duration_hours: parseInt(formData.duration_hours) || 2
+      };
+
+      // Validate roommate_id is a positive integer
+      if (!submitData.roommate_id || submitData.roommate_id < 1) {
+        setError('Please select a valid roommate');
+        return;
+      }
+      
       // Check for conflicts
       const conflictCheck = await laundryAPI.checkConflicts({
-        date: formData.date,
-        time_slot: formData.time_slot,
-        machine_type: formData.machine_type,
+        date: submitData.date,
+        time_slot: submitData.time_slot,
+        machine_type: submitData.machine_type,
         exclude_slot_id: editingSlot?.id
       });
 
@@ -114,11 +137,11 @@ const LaundryScheduler = () => {
 
       if (editingSlot) {
         // Update existing slot
-        const response = await laundryAPI.update(editingSlot.id, formData);
+        const response = await laundryAPI.update(editingSlot.id, submitData);
         setSlots(slots.map(slot => slot.id === editingSlot.id ? response.data : slot));
       } else {
         // Create new slot
-        const response = await laundryAPI.create(formData);
+        const response = await laundryAPI.create(submitData);
         setSlots([...slots, response.data]);
       }
       
