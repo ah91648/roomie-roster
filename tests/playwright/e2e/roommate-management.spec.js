@@ -49,7 +49,7 @@ test.describe('Roommate Management', () => {
     const editInput = page.locator('.edit-mode input');
     await editInput.clear();
     await editInput.fill('Updated Name');
-    await page.click('button', { hasText: 'Save' }');
+    await page.click('button', { hasText: 'Save' });
     
     // Verify the name was updated
     await expect(page.locator('.roommate-name')).toContainText('Updated Name');

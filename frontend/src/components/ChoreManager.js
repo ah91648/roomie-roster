@@ -80,10 +80,14 @@ const ChoreManager = () => {
 
     try {
       setError(null);
+      setLoading(true);
       await choreAPI.delete(id);
-      setChores(chores.filter(c => c.id !== id));
+      // Force a complete reload to ensure UI is in sync
+      await loadChores();
     } catch (err) {
       setError('Failed to delete chore: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setLoading(false);
     }
   };
 

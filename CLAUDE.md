@@ -11,6 +11,7 @@ RoomieRoster is a full-stack household chore management application that fairly 
 - **Shopping List**: Collaborative shopping with price tracking and purchase history
 - **Request Management**: Roommate approval system for purchasing requests with auto-approval thresholds
 - **Laundry Scheduling**: Time slot management for shared laundry facilities with load tracking
+- **Blocked Time Slots**: Calendar integration for blocked time periods that prevent scheduling conflicts
 - **Smart Assignment**: Fair distribution using rotation and weighted algorithms
 - **Real-time Updates**: Live collaboration with polling-based synchronization
 - **Google Authentication**: Secure OAuth 2.0 login with roommate account linking
@@ -49,6 +50,8 @@ npm test                    # Run all E2E tests
 npm run test:headed         # Run tests with browser visible
 npm run test:debug         # Debug mode
 npm run test:report        # View test report
+npx playwright test mobile-navigation.spec.js  # Test mobile navigation specifically
+npx playwright test --project="Mobile Safari"  # Test specific mobile browser
 ```
 
 **Production Build:**
@@ -57,10 +60,25 @@ cd frontend
 npm run build               # Build frontend for production
 ```
 
-**Backend Testing:**
+**Development Server Commands:**
 ```bash
+# Frontend development server (from frontend/)
+npm start                   # Starts React dev server on port 3000
+npm test                    # Run React component tests
+
+# Backend development server (from backend/)
+python app.py               # Starts Flask server on port 5000/5001
+```
+
+**Linting and Code Quality:**
+```bash
+# Frontend (uses built-in react-scripts)
+cd frontend
+npm run build               # Includes linting as part of build process
+
+# Backend (Python code follows PEP 8)
 cd backend
-python -m pytest tests/    # Run backend unit tests (if available)
+python -m flake8 .          # If flake8 is installed for linting
 ```
 
 ## Core Architecture
@@ -76,23 +94,38 @@ The application follows a clear data flow pattern:
    - `shopping_list.json`: Shopping list items with purchase history and status tracking
    - `requests.json`: Purchase requests with approval workflows and auto-approval rules
    - `laundry_slots.json`: Laundry scheduling with time slots, load types, and machine reservations
+   - `blocked_time_slots.json`: Blocked time periods for preventing scheduling conflicts
 
 2. **Business Logic (`backend/utils/`)**: 
    - `DataHandler`: Manages all JSON file operations and data integrity
    - `ChoreAssignmentLogic`: Implements the core fairness algorithms
+   - `SchedulerService`: Handles automatic weekly cycle resets using APScheduler
+   - `AuthService`: Handles Google OAuth authentication and session management
+   - `CalendarService`: Google Calendar API integration for chore sync
+   - `SecurityMiddleware`: CSRF protection, rate limiting, and request validation
+   - `SessionManager`: User session and authentication state management
+   - `UserCalendarService`: Personal calendar configuration and sync functionality
 
 3. **API Layer (`backend/app.py`)**: RESTful endpoints with comprehensive error handling
 
 4. **Frontend (`frontend/src/`)**: React SPA with component-based architecture
    - `services/api.js`: Centralized API communication with axios and real-time polling
+   - `contexts/AuthContext.js`: React context for authentication state management
    - `components/`: Feature-specific React components
      - `ChoreManager.js`: Chore CRUD with sub-task management
      - `ShoppingListManager.js`: Shopping list with real-time updates and purchase tracking
      - `RequestManager.js`: Purchase request approval workflow with threshold management
      - `LaundryScheduler.js`: Time slot booking for shared laundry facilities
+     - `BlockedTimeSlotsManager.js`: Management of blocked time periods to prevent scheduling conflicts
      - `SubChoreManager.js`: Sub-task creation and management
      - `SubChoreProgress.js`: Visual progress tracking with checkboxes
-   - Proxy configuration routes API calls to backend during development
+     - `AssignmentDisplay.js`: Shows current chore assignments organized by roommate
+     - `RoommateManager.js`: Roommate CRUD operations with validation
+     - `GoogleLoginButton.js`: OAuth login interface component
+     - `UserProfile.js`: User account management and linked roommate display
+     - `CalendarSettings.js`: Google Calendar integration configuration
+     - `UserCalendarSettings.js`: Personal calendar sync preferences
+   - Proxy configuration routes API calls to backend during development (currently set to port 5001)
 
 ### Assignment Algorithm Architecture
 
@@ -127,6 +160,14 @@ The React frontend communicates with Flask via a well-defined API contract:
 
 ## Key Development Patterns
 
+### Responsive Design Architecture
+The application uses a mobile-first responsive design approach:
+- **Desktop Navigation**: Horizontal tabs with icons and text labels side-by-side
+- **Mobile Navigation**: Vertical tab layout with icons above text labels for better touch interaction
+- **CSS Media Queries**: Breakpoint at 768px switches between desktop and mobile layouts
+- **Mobile Optimization**: Smaller fonts (0.75rem labels, 1.2rem icons), reduced padding, centered alignment
+- **Cross-browser Compatibility**: Tested across Safari, Chrome, Firefox on both desktop and mobile
+
 ### Error Handling Strategy
 Both backend and frontend implement comprehensive error handling:
 - Backend: HTTP status codes with detailed JSON error responses
@@ -146,17 +187,20 @@ E2E tests cover complete user workflows rather than isolated units:
 - `authentication-flow.spec.js`: OAuth login and session management
 - `calendar-integration.spec.js`: Google Calendar sync functionality
 - `laundry-scheduling.spec.js`: Time slot booking and conflict detection
+- `mobile-navigation.spec.js`: Mobile Safari navigation and responsive design validation
 - `deployment-verification.spec.js`: Production deployment validation
 
 Tests include setup/teardown for data consistency and handle async operations properly.
 
 ### Test Infrastructure Features
-- **Visual Testing**: Screenshots captured for debugging and verification
-- **Cross-browser Testing**: Chrome, Firefox, Safari compatibility
-- **Mobile Testing**: Responsive design validation
+- **Visual Testing**: Screenshots captured for debugging and verification in `tests/playwright/screenshots/`
+- **Cross-browser Testing**: Chrome, Firefox, Safari compatibility across desktop and mobile
+- **Mobile Testing**: Comprehensive responsive design validation with device emulation (iPhone, iPad, Samsung Galaxy)
+- **Mobile Navigation Testing**: Specific tests for mobile Safari tab visibility and functionality
 - **Authentication Testing**: OAuth flow verification with mock users
 - **Deployment Testing**: Live site validation and feature verification
 - **Performance Testing**: Load times and responsiveness metrics
+- **Device-Specific Testing**: Individual mobile device configurations with proper user agent strings
 
 ## Development Notes
 
@@ -166,6 +210,18 @@ Tests include setup/teardown for data consistency and handle async operations pr
 - **Important**: Frontend proxy in `package.json` currently points to port 5001 - update if needed for consistency
 - The launcher includes port conflict detection and automatic port selection
 - **Production**: Render automatically assigns port via `PORT` environment variable - do not set manually
+
+### Single Test Execution
+When debugging specific test scenarios:
+```bash
+cd tests/playwright
+npx playwright test roommate-management.spec.js    # Run single test file
+npx playwright test --grep "add roommate"          # Run tests matching pattern
+npx playwright test --debug roommate-management    # Debug specific test file
+npx playwright test mobile-navigation.spec.js --headed  # Test mobile navigation with visible browser
+npx playwright test --project="chromium"           # Run tests on specific browser
+npx playwright test --project="Mobile Chrome"      # Test specific mobile configuration
+```
 
 ### Data Persistence
 JSON files are the single source of truth. When modifying data structures:
@@ -208,6 +264,30 @@ Manages shared laundry facility access with time slot reservations:
 - **Status Management**: Handles scheduled, in-progress, and completed laundry sessions
 - **Conflict Prevention**: Prevents double-booking of time slots and machines
 
+### Blocked Time Slots System
+Manages time periods that are unavailable for laundry scheduling:
+- **Time Blocking**: Mark specific time slots as unavailable with custom reasons
+- **Calendar Integration**: Optionally sync blocked slots to all users' Google Calendars
+- **Conflict Detection**: Prevents scheduling laundry during blocked periods
+- **Flexible Management**: Add, edit, delete blocked slots with date-specific filtering
+- **Automatic Validation**: Checks for conflicts when creating or updating time blocks
+
+### Automatic Cycle Reset System
+The application now includes automated weekly cycle resets to ensure consistent fairness:
+- **Scheduled Reset**: Automatic cycle reset every Sunday at 11:59 PM using APScheduler
+- **Background Processing**: Uses BackgroundScheduler to run independently of user requests
+- **Graceful Handling**: Includes misfire grace period and error handling for reliability
+- **Manual Override**: Maintains existing manual reset functionality through API endpoint
+- **Logging**: Comprehensive logging of automatic and manual reset operations
+- **Status Monitoring**: API endpoint to check scheduler status and next scheduled reset
+
+**Key Implementation Details:**
+- APScheduler v3.10.4 with BackgroundScheduler for Flask compatibility
+- Cron trigger configured for Sunday 23:59 weekly execution
+- Automatic cleanup of current assignments and reset of roommate cycle points
+- Event listeners for job execution monitoring and error handling
+- Graceful shutdown handling with atexit registration
+
 ### Debugging Tools
 - Launcher provides detailed startup diagnostics with real-time error capture
 - Flask app includes comprehensive logging configuration with stdout/stderr handlers
@@ -215,6 +295,8 @@ Manages shared laundry facility access with time slot reservations:
 - Assignment endpoint returns detailed assignment reasoning
 - Enhanced error handlers with full stack traces
 - Development CORS configuration for local testing
+- Mobile testing suite with device-specific screenshots and browser console logging
+- Playwright test reports with visual debugging information
 
 ### Deployment Architecture
 The application is designed for Render deployment with these key considerations:
@@ -233,6 +315,10 @@ For production deployment, these environment variables must be configured:
 - `ROOMIE_WHITELIST`: Comma-separated list of allowed email addresses
 - `PORT`: Automatically set by Render (do not configure manually)
 
+**Optional Environment Variables:**
+- `RENDER_SERVICE_NAME`: Automatically set by Render, used for dynamic redirect URI generation
+- `APP_BASE_URL`: Custom base URL override for OAuth redirects (useful for custom domains)
+
 ### Google API Setup
 Before deployment, Google APIs must be configured (see `API_SETUP_GUIDE.md` for detailed instructions):
 
@@ -249,8 +335,16 @@ Before deployment, Google APIs must be configured (see `API_SETUP_GUIDE.md` for 
 6. Publish app for production use
 
 **Critical Redirect URIs:**
+The application now dynamically determines redirect URIs based on environment:
 - Development: `http://localhost:5000/api/auth/callback`, `http://localhost:5001/api/auth/callback`
-- Production: `https://your-app.onrender.com/api/auth/callback`
+- Production: `https://your-app.onrender.com/api/auth/callback` (automatically detected via `RENDER_SERVICE_NAME`)
+- Custom domains: Set `APP_BASE_URL` environment variable for custom redirect URI generation
+
+**Dynamic Redirect URI Features:**
+- Automatically detects Render deployment environment
+- Handles port conflicts in development (5000 vs 5001)
+- Validates redirect URIs for security
+- Supports custom base URLs via environment variables
 
 ## API Endpoints Reference
 
@@ -303,9 +397,15 @@ Before deployment, Google APIs must be configured (see `API_SETUP_GUIDE.md` for 
 - `POST /api/laundry-slots/{id}/complete` - Mark laundry session as completed
 - `GET /api/laundry-slots/schedule` - Get upcoming laundry schedule
 
+**Blocked Time Slots:**
+- `GET/POST /api/blocked-time-slots` - Blocked time slot management (supports date filtering)
+- `PUT/DELETE /api/blocked-time-slots/{id}` - Individual blocked slot operations
+- `POST /api/blocked-time-slots/check-conflicts` - Check for scheduling conflicts
+
 **System:**
 - `GET /api/health` - Health check
 - `GET /api/state` - Application state inspection
+- `GET /api/scheduler/status` - Get automatic scheduler status and next reset time
 
 **Key Implementation Notes:**
 - The assignment endpoint implements core fairness algorithms
@@ -313,7 +413,51 @@ Before deployment, Google APIs must be configured (see `API_SETUP_GUIDE.md` for 
 - Shopping list metadata endpoint enables real-time collaboration via polling
 - Request management implements approval workflows with configurable thresholds
 - Laundry scheduling prevents conflicts through time slot validation
+- Blocked time slots integrate with calendar sync and conflict detection
 - Authentication endpoints use OAuth 2.0 with secure session management
 - Personal calendar integration syncs chores to individual Google Calendars
+- Automatic cycle reset runs every Sunday at 11:59 PM via APScheduler
+- Manual reset endpoint preserves existing functionality alongside automatic resets
+- Scheduler status endpoint provides monitoring of automatic reset jobs
 - Security features include CSRF protection, rate limiting, and request validation
 - All endpoints include comprehensive error handling and validation
+
+## Dependencies and Installation
+
+### Backend Dependencies (requirements.txt)
+```
+Flask==3.0.0
+Flask-CORS==4.0.0
+Flask-Session==0.5.0
+python-dateutil==2.8.2
+google-auth==2.23.4
+google-auth-oauthlib==1.1.0
+google-api-python-client==2.108.0
+requests==2.31.0
+gunicorn==21.2.0
+apscheduler==3.10.4
+```
+
+### Frontend Dependencies (package.json)
+```json
+{
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "axios": "^1.6.0",
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^14.0.0",
+    "@testing-library/user-event": "^14.0.0"
+  }
+}
+```
+
+### Test Dependencies (tests/playwright/package.json)
+```json
+{
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}
+```
