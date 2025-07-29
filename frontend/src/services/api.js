@@ -183,6 +183,15 @@ export const userCalendarAPI = {
   getSyncStatus: () => api.get('/user-calendar/sync-status'),
 };
 
+// Blocked Time Slots API
+export const blockedTimeSlotsAPI = {
+  getAll: (params = {}) => api.get('/blocked-time-slots', { params }),
+  create: (data) => api.post('/blocked-time-slots', data),
+  update: (id, data) => api.put(`/blocked-time-slots/${id}`, data),
+  delete: (id) => api.delete(`/blocked-time-slots/${id}`),
+  checkConflicts: (data) => api.post('/blocked-time-slots/check-conflicts', data),
+};
+
 // Application state API
 export const stateAPI = {
   get: () => api.get('/state'),

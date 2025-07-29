@@ -17,6 +17,7 @@ class DataHandler:
         self.shopping_list_file = self.data_dir / "shopping_list.json"
         self.requests_file = self.data_dir / "requests.json"
         self.laundry_slots_file = self.data_dir / "laundry_slots.json"
+        self.blocked_time_slots_file = self.data_dir / "blocked_time_slots.json"
         
         # Initialize files if they don't exist
         self._initialize_files()
@@ -45,6 +46,9 @@ class DataHandler:
         
         if not self.laundry_slots_file.exists():
             self._write_json(self.laundry_slots_file, [])
+        
+        if not self.blocked_time_slots_file.exists():
+            self._write_json(self.blocked_time_slots_file, [])
     
     def _read_json(self, filepath: Path) -> Any:
         """Read JSON data from file."""
@@ -724,6 +728,7 @@ class DataHandler:
         slots = self.get_laundry_slots()
         conflicts = []
         
+        # Check regular laundry slot conflicts
         for slot in slots:
             # Skip the slot being edited
             if exclude_slot_id and slot['id'] == exclude_slot_id:
@@ -738,6 +743,22 @@ class DataHandler:
                 slot.get('time_slot') == time_slot and 
                 slot.get('machine_type') == machine_type):
                 conflicts.append(slot)
+        
+        # Check blocked time slot conflicts
+        blocked_conflicts = self.check_blocked_time_conflicts(date, time_slot)
+        for blocked_slot in blocked_conflicts:
+            # Transform blocked slot to look like a regular conflict for consistency
+            conflict = {
+                'id': f"blocked_{blocked_slot['id']}",
+                'roommate_name': 'BLOCKED',
+                'date': blocked_slot['date'],
+                'time_slot': blocked_slot['time_slot'],
+                'machine_type': 'all',  # Blocked slots affect all machine types
+                'status': 'blocked',
+                'reason': blocked_slot.get('reason', 'Time slot blocked by calendar settings'),
+                'blocked_by': blocked_slot.get('created_by', 'System')
+            }
+            conflicts.append(conflict)
         
         return conflicts
     
@@ -805,3 +826,71 @@ class DataHandler:
                 'cancelled_slots': 0,
                 'timestamp': datetime.now().isoformat()
             }
+    
+    # Blocked Time Slots operations
+    def get_blocked_time_slots(self) -> List[Dict]:
+        """Get all blocked time slots."""
+        return self._read_json(self.blocked_time_slots_file)
+    
+    def save_blocked_time_slots(self, blocked_slots: List[Dict]):
+        """Save blocked time slots to file."""
+        self._write_json(self.blocked_time_slots_file, blocked_slots)
+    
+    def get_next_blocked_slot_id(self) -> int:
+        """Get the next available blocked slot ID."""
+        blocked_slots = self.get_blocked_time_slots()
+        if not blocked_slots:
+            return 1
+        return max(slot['id'] for slot in blocked_slots) + 1
+    
+    def add_blocked_time_slot(self, blocked_slot: Dict) -> Dict:
+        """Add a new blocked time slot."""
+        blocked_slots = self.get_blocked_time_slots()
+        blocked_slots.append(blocked_slot)
+        self.save_blocked_time_slots(blocked_slots)
+        return blocked_slot
+    
+    def update_blocked_time_slot(self, slot_id: int, updated_slot: Dict) -> Dict:
+        """Update an existing blocked time slot."""
+        blocked_slots = self.get_blocked_time_slots()
+        for i, slot in enumerate(blocked_slots):
+            if slot['id'] == slot_id:
+                blocked_slots[i] = updated_slot
+                self.save_blocked_time_slots(blocked_slots)
+                return updated_slot
+        raise ValueError(f"Blocked time slot with id {slot_id} not found")
+    
+    def delete_blocked_time_slot(self, slot_id: int):
+        """Delete a blocked time slot."""
+        blocked_slots = self.get_blocked_time_slots()
+        original_count = len(blocked_slots)
+        blocked_slots = [slot for slot in blocked_slots if slot['id'] != slot_id]
+        if len(blocked_slots) == original_count:
+            raise ValueError(f"Blocked time slot with id {slot_id} not found")
+        self.save_blocked_time_slots(blocked_slots)
+    
+    def get_blocked_time_slots_by_date(self, date: str) -> List[Dict]:
+        """Get blocked time slots for a specific date."""
+        blocked_slots = self.get_blocked_time_slots()
+        return [slot for slot in blocked_slots if slot.get('date') == date]
+    
+    def check_blocked_time_conflicts(self, date: str, time_slot: str, exclude_slot_id: int = None) -> List[Dict]:
+        """Check if a time slot conflicts with any blocked time slots."""
+        blocked_slots = self.get_blocked_time_slots()
+        conflicts = []
+        
+        for slot in blocked_slots:
+            # Skip the slot being edited
+            if exclude_slot_id and slot['id'] == exclude_slot_id:
+                continue
+            
+            # Check if date and time slot match
+            if slot.get('date') == date and slot.get('time_slot') == time_slot:
+                conflicts.append(slot)
+        
+        return conflicts
+    
+    def is_time_slot_blocked(self, date: str, time_slot: str) -> bool:
+        """Check if a specific time slot is blocked."""
+        conflicts = self.check_blocked_time_conflicts(date, time_slot)
+        return len(conflicts) > 0

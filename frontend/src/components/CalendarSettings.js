@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { calendarAPI } from '../services/api';
+import BlockedTimeSlotsManager from './BlockedTimeSlotsManager';
 
 const CalendarSettings = () => {
   const [status, setStatus] = useState({});
@@ -412,6 +413,11 @@ const CalendarSettings = () => {
           </div>
         )}
       </div>
+
+      {/* Blocked Time Slots Management */}
+      {setupStep === 'configure-settings' && (
+        <BlockedTimeSlotsManager />
+      )}
 
       {/* Current Status */}
       <div className="current-status">

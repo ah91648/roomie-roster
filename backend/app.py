@@ -7,6 +7,7 @@ from utils.auth_service import AuthService
 from utils.session_manager import SessionManager, login_required, roommate_required, csrf_protected
 from utils.user_calendar_service import UserCalendarService
 from utils.security_middleware import SecurityMiddleware, rate_limit, csrf_protected_enhanced, security_validated, auth_rate_limited
+from utils.scheduler_service import SchedulerService
 from datetime import datetime
 import traceback
 import logging
@@ -64,6 +65,9 @@ auth_service = AuthService()
 user_calendar_service = UserCalendarService()
 session_manager = SessionManager(auth_service=auth_service, data_handler=data_handler)
 security_middleware = SecurityMiddleware()
+
+# Initialize scheduler service for automatic cycle resets
+scheduler_service = SchedulerService(assignment_logic=assignment_logic)
 
 # Initialize session management and security with app
 session_manager.init_app(app)
@@ -895,11 +899,25 @@ def get_state():
 def reset_cycle():
     """Manually reset the assignment cycle."""
     try:
-        assignment_logic.reset_cycle_points()
-        return jsonify({'message': 'Cycle reset successfully'})
+        scheduler_service.manual_cycle_reset()
+        return jsonify({
+            'message': 'Cycle reset successfully',
+            'reset_time': datetime.now().isoformat(),
+            'type': 'manual'
+        })
     except Exception as e:
-        print(f"Error resetting cycle: {e}")
+        app.logger.error(f"Error resetting cycle: {e}", exc_info=True)
         return jsonify({'error': 'Failed to reset cycle'}), 500
+
+@app.route('/api/scheduler/status', methods=['GET'])
+def get_scheduler_status():
+    """Get the current status of the automatic scheduler."""
+    try:
+        status = scheduler_service.get_scheduler_status()
+        return jsonify(status)
+    except Exception as e:
+        app.logger.error(f"Error getting scheduler status: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to get scheduler status'}), 500
 
 # Laundry scheduling endpoints
 @app.route('/api/laundry-slots', methods=['GET'])
@@ -1121,6 +1139,192 @@ def get_laundry_metadata():
     except Exception as e:
         print(f"Error getting laundry metadata: {e}")
         return jsonify({'error': 'Failed to get laundry metadata'}), 500
+
+# Blocked Time Slots endpoints
+@app.route('/api/blocked-time-slots', methods=['GET'])
+def get_blocked_time_slots():
+    """Get all blocked time slots."""
+    try:
+        blocked_slots = data_handler.get_blocked_time_slots()
+        
+        # Optional filtering by date
+        date = request.args.get('date')
+        if date:
+            blocked_slots = [slot for slot in blocked_slots if slot.get('date') == date]
+        
+        return jsonify(blocked_slots)
+    except Exception as e:
+        print(f"Error getting blocked time slots: {e}")
+        return jsonify({'error': 'Failed to get blocked time slots'}), 500
+
+@app.route('/api/blocked-time-slots', methods=['POST'])
+@csrf.exempt
+def add_blocked_time_slot():
+    """Add a new blocked time slot."""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['date', 'time_slot', 'reason']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Add system fields
+        from datetime import datetime
+        blocked_slot = {
+            'id': data_handler.get_next_blocked_slot_id(),
+            'date': data['date'],
+            'time_slot': data['time_slot'],
+            'reason': data['reason'],
+            'created_by': data.get('created_by', 'System'),
+            'created_date': datetime.now().isoformat(),
+            'sync_to_calendars': data.get('sync_to_calendars', True)
+        }
+        
+        # Check for conflicts with existing blocked slots
+        conflicts = data_handler.check_blocked_time_conflicts(
+            data['date'], 
+            data['time_slot'],
+            blocked_slot['id']
+        )
+        
+        if conflicts:
+            return jsonify({
+                'error': 'Time slot is already blocked',
+                'conflicting_slot': conflicts[0]
+            }), 409
+        
+        # Save the blocked slot
+        result = data_handler.add_blocked_time_slot(blocked_slot)
+        
+        # Sync to calendars if requested
+        if blocked_slot['sync_to_calendars']:
+            try:
+                sync_blocked_slot_to_calendars(blocked_slot)
+            except Exception as e:
+                print(f"Failed to sync blocked slot to calendars: {e}")
+                # Don't fail the request if calendar sync fails
+        
+        return jsonify(result), 201
+    except Exception as e:
+        print(f"Error adding blocked time slot: {e}")
+        return jsonify({'error': 'Failed to add blocked time slot'}), 500
+
+@app.route('/api/blocked-time-slots/<int:slot_id>', methods=['PUT'])
+@csrf.exempt
+def update_blocked_time_slot(slot_id):
+    """Update an existing blocked time slot."""
+    try:
+        data = request.get_json()
+        blocked_slots = data_handler.get_blocked_time_slots()
+        
+        # Find the existing slot
+        existing_slot = None
+        for slot in blocked_slots:
+            if slot['id'] == slot_id:
+                existing_slot = slot
+                break
+        
+        if not existing_slot:
+            return jsonify({'error': 'Blocked time slot not found'}), 404
+        
+        # Update fields
+        updated_slot = existing_slot.copy()
+        updatable_fields = ['date', 'time_slot', 'reason', 'sync_to_calendars']
+        for field in updatable_fields:
+            if field in data:
+                updated_slot[field] = data[field]
+        
+        from datetime import datetime
+        updated_slot['updated_date'] = datetime.now().isoformat()
+        
+        # Check for conflicts (excluding this slot)
+        if 'date' in data or 'time_slot' in data:
+            conflicts = data_handler.check_blocked_time_conflicts(
+                updated_slot['date'], 
+                updated_slot['time_slot'],
+                slot_id
+            )
+            
+            if conflicts:
+                return jsonify({
+                    'error': 'Time slot conflicts with another blocked slot',
+                    'conflicting_slot': conflicts[0]
+                }), 409
+        
+        # Save the updated slot
+        result = data_handler.update_blocked_time_slot(slot_id, updated_slot)
+        
+        # Sync to calendars if requested
+        if updated_slot.get('sync_to_calendars', True):
+            try:
+                sync_blocked_slot_to_calendars(updated_slot)
+            except Exception as e:
+                print(f"Failed to sync updated blocked slot to calendars: {e}")
+        
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        print(f"Error updating blocked time slot: {e}")
+        return jsonify({'error': 'Failed to update blocked time slot'}), 500
+
+@app.route('/api/blocked-time-slots/<int:slot_id>', methods=['DELETE'])
+@csrf.exempt
+def delete_blocked_time_slot(slot_id):
+    """Delete a blocked time slot."""
+    try:
+        # Get the slot before deleting for calendar cleanup
+        blocked_slots = data_handler.get_blocked_time_slots()
+        slot_to_delete = None
+        for slot in blocked_slots:
+            if slot['id'] == slot_id:
+                slot_to_delete = slot
+                break
+        
+        if not slot_to_delete:
+            return jsonify({'error': 'Blocked time slot not found'}), 404
+        
+        # Delete the slot
+        data_handler.delete_blocked_time_slot(slot_id)
+        
+        # Remove from calendars if it was synced
+        if slot_to_delete.get('sync_to_calendars', True):
+            try:
+                remove_blocked_slot_from_calendars(slot_to_delete)
+            except Exception as e:
+                print(f"Failed to remove blocked slot from calendars: {e}")
+        
+        return jsonify({'message': 'Blocked time slot deleted successfully'}), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        print(f"Error deleting blocked time slot: {e}")
+        return jsonify({'error': 'Failed to delete blocked time slot'}), 500
+
+@app.route('/api/blocked-time-slots/check-conflicts', methods=['POST'])
+def check_blocked_time_conflicts():
+    """Check if a time slot conflicts with blocked slots."""
+    try:
+        data = request.get_json()
+        
+        if 'date' not in data or 'time_slot' not in data:
+            return jsonify({'error': 'Missing date or time_slot'}), 400
+        
+        conflicts = data_handler.check_blocked_time_conflicts(
+            data['date'], 
+            data['time_slot'],
+            data.get('exclude_slot_id')
+        )
+        
+        return jsonify({
+            'has_conflicts': len(conflicts) > 0,
+            'conflicts': conflicts
+        })
+    except Exception as e:
+        print(f"Error checking blocked time conflicts: {e}")
+        return jsonify({'error': 'Failed to check conflicts'}), 500
 
 # Google Calendar integration endpoints
 @app.route('/api/calendar/status', methods=['GET'])
@@ -1606,6 +1810,133 @@ def serve(path):
     else:
         return send_from_directory(app.static_folder, 'index.html')
 
+# Helper functions for calendar sync
+def sync_blocked_slot_to_calendars(blocked_slot):
+    """Sync a blocked time slot to all users' calendars."""
+    try:
+        # Get all authenticated users (roommates with Google accounts)
+        roommates = data_handler.get_roommates()
+        authenticated_users = [rm for rm in roommates if rm.get('google_calendar_id')]
+        
+        if not authenticated_users:
+            print("No authenticated users found for calendar sync")
+            return
+        
+        # Create calendar event data
+        event_data = create_blocked_slot_event_data(blocked_slot)
+        
+        # Sync to each user's calendar
+        for user in authenticated_users:
+            try:
+                sync_to_user_calendar(user, event_data, blocked_slot)
+            except Exception as e:
+                print(f"Failed to sync blocked slot to {user.get('name', 'unknown')}'s calendar: {e}")
+        
+        print(f"Successfully synced blocked slot to {len(authenticated_users)} calendars")
+        
+    except Exception as e:
+        print(f"Error in sync_blocked_slot_to_calendars: {e}")
+        raise
+
+def remove_blocked_slot_from_calendars(blocked_slot):
+    """Remove a blocked time slot from all users' calendars."""
+    try:
+        # Get all authenticated users
+        roommates = data_handler.get_roommates()
+        authenticated_users = [rm for rm in roommates if rm.get('google_calendar_id')]
+        
+        if not authenticated_users:
+            return
+        
+        # Remove from each user's calendar
+        for user in authenticated_users:
+            try:
+                remove_from_user_calendar(user, blocked_slot)
+            except Exception as e:
+                print(f"Failed to remove blocked slot from {user.get('name', 'unknown')}'s calendar: {e}")
+        
+        print(f"Successfully removed blocked slot from {len(authenticated_users)} calendars")
+        
+    except Exception as e:
+        print(f"Error in remove_blocked_slot_from_calendars: {e}")
+
+def create_blocked_slot_event_data(blocked_slot):
+    """Create calendar event data for a blocked time slot."""
+    # Parse the time slot
+    date = blocked_slot['date']
+    time_range = blocked_slot['time_slot']
+    start_time, end_time = time_range.split('-')
+    
+    # Create datetime objects
+    start_datetime = f"{date}T{start_time}:00"
+    end_datetime = f"{date}T{end_time}:00"
+    
+    return {
+        'title': f"🚫 Laundry Blocked - {blocked_slot['reason']}",
+        'description': f"Laundry time slot blocked by calendar settings\n" +
+                      f"Reason: {blocked_slot['reason']}\n" +
+                      f"Created by: {blocked_slot.get('created_by', 'System')}\n" +
+                      f"This time slot is not available for laundry scheduling.",
+        'start_time': start_datetime,
+        'end_time': end_datetime,
+        'location': 'Laundry Room',
+        'blocked_slot_id': blocked_slot['id']
+    }
+
+def sync_to_user_calendar(user, event_data, blocked_slot):
+    """Sync blocked slot to a specific user's calendar."""
+    try:
+        # Get user's calendar configuration
+        calendar_id = user.get('google_calendar_id')
+        if not calendar_id:
+            return
+        
+        # Check if calendar service is available and configured
+        if not calendar_service.is_configured():
+            print("Calendar service not configured - skipping sync")
+            return
+        
+        # Create the calendar event
+        result = calendar_service.create_event(calendar_id, event_data)
+        
+        # Store the event ID for future reference (deletion)
+        blocked_slot['calendar_events'] = blocked_slot.get('calendar_events', {})
+        blocked_slot['calendar_events'][user['id']] = {
+            'event_id': result['id'],
+            'calendar_id': calendar_id,
+            'user_name': user.get('name', 'Unknown')
+        }
+        
+        print(f"Created calendar event {result['id']} for user {user.get('name')}")
+        
+    except Exception as e:
+        print(f"Failed to sync to user calendar: {e}")
+        raise
+
+def remove_from_user_calendar(user, blocked_slot):
+    """Remove blocked slot from a specific user's calendar."""
+    try:
+        calendar_events = blocked_slot.get('calendar_events', {})
+        user_event = calendar_events.get(str(user['id']))
+        
+        if not user_event:
+            return  # No event to remove
+        
+        # Check if calendar service is available
+        if not calendar_service.is_configured():
+            return
+        
+        # Delete the calendar event
+        calendar_service.delete_event(
+            user_event['calendar_id'], 
+            user_event['event_id']
+        )
+        
+        print(f"Removed calendar event {user_event['event_id']} for user {user.get('name')}")
+        
+    except Exception as e:
+        print(f"Failed to remove from user calendar: {e}")
+
 if __name__ == '__main__':
     try:
         # Get port from environment variable, default to 5000
@@ -1620,6 +1951,15 @@ if __name__ == '__main__':
         test_chores = data_handler.get_chores()
         test_roommates = data_handler.get_roommates()
         print(f"✅ Data loaded: {len(test_chores)} chores, {len(test_roommates)} roommates", flush=True)
+        
+        # Initialize scheduler for automatic cycle resets
+        print("⏰ Initializing automatic scheduler...", flush=True)
+        scheduler_service.init_scheduler()
+        scheduler_status = scheduler_service.get_scheduler_status()
+        print(f"✅ Scheduler initialized: {scheduler_status.get('status', 'unknown')}", flush=True)
+        if scheduler_status.get('jobs'):
+            for job in scheduler_status['jobs']:
+                print(f"   📅 Scheduled: {job['name']} - Next run: {job['next_run_time']}", flush=True)
         
         # Start Flask app
         print("🚀 Starting Flask server...", flush=True)
