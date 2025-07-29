@@ -166,9 +166,55 @@ export function AuthProvider({ children }) {
       dispatch({ type: AUTH_ACTIONS.INIT_START });
       
       try {
+        // Check if we have OAuth callback parameters in the URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const authStatus = urlParams.get('auth');
+        const needsLinking = urlParams.get('needs_linking');
+        const errorMessage = urlParams.get('message');
+        
+        if (authStatus === 'success') {
+          // Handle successful OAuth callback
+          try {
+            const profileResponse = await authAPI.getProfile();
+            const user = profileResponse.data.user;
+            
+            dispatch({
+              type: AUTH_ACTIONS.LOGIN_SUCCESS,
+              payload: { 
+                user, 
+                needsRoommateLink: needsLinking === 'true' 
+              }
+            });
+            
+            // Clean up URL parameters
+            const cleanUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+            return;
+          } catch (profileError) {
+            console.error('Failed to get user profile after OAuth:', profileError);
+            dispatch({
+              type: AUTH_ACTIONS.LOGIN_ERROR,
+              payload: 'Failed to get user profile after authentication'
+            });
+            return;
+          }
+        } else if (authStatus === 'error') {
+          // Handle OAuth error callback
+          dispatch({
+            type: AUTH_ACTIONS.LOGIN_ERROR,
+            payload: errorMessage || 'Authentication failed'
+          });
+          
+          // Clean up URL parameters
+          const cleanUrl = window.location.pathname;
+          window.history.replaceState({}, document.title, cleanUrl);
+          return;
+        }
+        
+        // Normal initialization (no OAuth callback)
         // Get auth service status
         const statusResponse = await authAPI.getStatus();
-        const authStatus = statusResponse.data;
+        const authServiceStatus = statusResponse.data;
         
         // Try to get current user profile
         let user = null;
@@ -182,7 +228,7 @@ export function AuthProvider({ children }) {
         
         dispatch({
           type: AUTH_ACTIONS.INIT_SUCCESS,
-          payload: { authStatus, user }
+          payload: { authStatus: authServiceStatus, user }
         });
       } catch (error) {
         console.error('Failed to initialize auth:', error);

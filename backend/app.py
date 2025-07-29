@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, redirect
 from flask_cors import CORS
 from utils.data_handler import DataHandler
 from utils.assignment_logic import ChoreAssignmentLogic
@@ -112,6 +112,22 @@ def get_default_redirect_uri():
     # Default fallback for development
     return 'http://localhost:5000/api/auth/callback'
 
+def get_frontend_url():
+    """Get the appropriate frontend URL based on environment."""
+    # Check for custom base URL override first (useful for other deployment platforms)
+    base_url = os.getenv('APP_BASE_URL')
+    if base_url:
+        return base_url.rstrip("/")
+    
+    # Check if we're running on Render - use explicit production URL
+    # Render sets PORT environment variable, and we can also check for RENDER_SERVICE_NAME
+    if os.getenv('RENDER_SERVICE_NAME') or (os.getenv('PORT') and not os.getenv('FLASK_ENV') == 'development'):
+        # Production environment - use the known production URL
+        return 'https://roomie-roster.onrender.com'
+    
+    # Development environment - frontend runs on port 3000
+    return 'http://localhost:3000'
+
 def validate_redirect_uri(redirect_uri):
     """Validate that the redirect URI is from a trusted source."""
     if not redirect_uri:
@@ -122,8 +138,10 @@ def validate_redirect_uri(redirect_uri):
         # Local development
         'http://localhost:5000/api/auth/callback',
         'http://localhost:5001/api/auth/callback',
+        'http://localhost:5002/api/auth/callback',
         'http://127.0.0.1:5000/api/auth/callback',
         'http://127.0.0.1:5001/api/auth/callback',
+        'http://127.0.0.1:5002/api/auth/callback',
         # Production on Render
         'https://roomie-roster.onrender.com/api/auth/callback',
     ]
@@ -1281,12 +1299,16 @@ def handle_auth_callback():
         state = request.args.get('state')
         
         if not code:
-            return jsonify({'error': 'Missing authorization code'}), 400
+            frontend_url = get_frontend_url()
+            error_url = f"{frontend_url}?auth=error&message=Missing authorization code"
+            return redirect(error_url)
         
         # Verify state token for CSRF protection
         from flask import session
         if state != session.get('oauth_state'):
-            return jsonify({'error': 'Invalid state token'}), 400
+            frontend_url = get_frontend_url()
+            error_url = f"{frontend_url}?auth=error&message=Invalid state token"
+            return redirect(error_url)
         
         # Clear the state token
         session.pop('oauth_state', None)
@@ -1296,7 +1318,9 @@ def handle_auth_callback():
         
         # Validate redirect URI for security
         if not validate_redirect_uri(redirect_uri):
-            return jsonify({'error': 'Invalid redirect URI'}), 400
+            frontend_url = get_frontend_url()
+            error_url = f"{frontend_url}?auth=error&message=Invalid redirect URI"
+            return redirect(error_url)
         
         result = auth_service.handle_auth_callback(code, redirect_uri, state)
         
@@ -1312,7 +1336,9 @@ def handle_auth_callback():
         
         if ALLOWED_EMAILS and user_email not in ALLOWED_EMAILS:
             # If the user's email is NOT in the list, deny access.
-            return jsonify({"error": "Access Denied. This application is private."}), 403
+            frontend_url = get_frontend_url()
+            error_url = f"{frontend_url}?auth=error&message=Access Denied. This application is private."
+            return redirect(error_url)
         
         # --- If check passes, proceed with login ---
         session_created = session_manager.create_user_session(
@@ -1322,21 +1348,27 @@ def handle_auth_callback():
         )
         
         if not session_created:
-            return jsonify({'error': 'Failed to create session'}), 500
+            frontend_url = get_frontend_url()
+            error_url = f"{frontend_url}?auth=error&message=Failed to create session"
+            return redirect(error_url)
         
         # Check if user needs to link to a roommate
         current_user = session_manager.get_current_user()
         needs_linking = 'roommate' not in current_user
         
-        return jsonify({
-            'user': current_user,
-            'needs_roommate_linking': needs_linking,
-            'message': 'Authentication successful'
-        })
+        # Redirect back to frontend with authentication status
+        # Build redirect URL with query parameters for the frontend to handle
+        frontend_url = get_frontend_url()
+        redirect_url = f"{frontend_url}?auth=success&needs_linking={'true' if needs_linking else 'false'}"
+        
+        return redirect(redirect_url)
         
     except Exception as e:
         print(f"Error in auth callback: {e}")
-        return jsonify({'error': str(e)}), 500
+        # Redirect back to frontend with error
+        frontend_url = get_frontend_url()
+        error_url = f"{frontend_url}?auth=error&message={str(e)}"
+        return redirect(error_url)
 
 @app.route('/api/auth/profile', methods=['GET'])
 @login_required
