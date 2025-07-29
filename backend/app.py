@@ -13,6 +13,7 @@ import logging
 import sys
 import os
 
+
 # Initialize Flask app
 app = Flask(__name__, static_folder='../frontend/build', static_url_path='/')
 
@@ -87,6 +88,57 @@ def get_next_id(items):
     if not items:
         return 1
     return max(item['id'] for item in items) + 1
+
+def get_default_redirect_uri():
+    """Get the appropriate redirect URI based on environment."""
+    # Check for custom base URL override first (useful for other deployment platforms)
+    base_url = os.getenv('APP_BASE_URL')
+    if base_url:
+        return f'{base_url.rstrip("/")}/api/auth/callback'
+    
+    # Check if we're running on Render - use explicit production URL
+    # Render sets PORT environment variable, and we can also check for RENDER_SERVICE_NAME
+    if os.getenv('RENDER_SERVICE_NAME') or (os.getenv('PORT') and not os.getenv('FLASK_ENV') == 'development'):
+        # Production environment - use the known production URL
+        return 'https://roomie-roster.onrender.com/api/auth/callback'
+    
+    # Development environment - detect the actual port being used
+    port = os.getenv('PORT') or os.getenv('FLASK_RUN_PORT', '5000')
+    
+    # Handle common development port scenarios (5000, 5001, 5002)
+    if port in ['5000', '5001', '5002']:
+        return f'http://localhost:{port}/api/auth/callback'
+    
+    # Default fallback for development
+    return 'http://localhost:5000/api/auth/callback'
+
+def validate_redirect_uri(redirect_uri):
+    """Validate that the redirect URI is from a trusted source."""
+    if not redirect_uri:
+        return False
+    
+    # Allowed redirect URI patterns
+    allowed_patterns = [
+        # Local development
+        'http://localhost:5000/api/auth/callback',
+        'http://localhost:5001/api/auth/callback',
+        'http://127.0.0.1:5000/api/auth/callback',
+        'http://127.0.0.1:5001/api/auth/callback',
+        # Production on Render
+        'https://roomie-roster.onrender.com/api/auth/callback',
+    ]
+    
+    # Check for custom base URL from environment
+    base_url = os.getenv('APP_BASE_URL')
+    if base_url:
+        allowed_patterns.append(f'{base_url.rstrip("/")}/api/auth/callback')
+    
+    # Check for Render service name pattern
+    render_service_name = os.getenv('RENDER_SERVICE_NAME')
+    if render_service_name:
+        allowed_patterns.append(f'https://{render_service_name}.onrender.com/api/auth/callback')
+    
+    return redirect_uri in allowed_patterns
 
 # Health check endpoint
 @app.route('/api/health', methods=['GET'])
@@ -1195,7 +1247,11 @@ def initiate_google_login():
     """Initiate Google OAuth login flow."""
     try:
         data = request.get_json() or {}
-        redirect_uri = data.get('redirect_uri', 'http://localhost:5000/api/auth/callback')
+        redirect_uri = data.get('redirect_uri', get_default_redirect_uri())
+        
+        # Validate redirect URI for security
+        if not validate_redirect_uri(redirect_uri):
+            return jsonify({'error': 'Invalid redirect URI'}), 400
         
         # Generate state token for CSRF protection
         state_token = os.urandom(32).hex()
@@ -1236,7 +1292,12 @@ def handle_auth_callback():
         session.pop('oauth_state', None)
         
         # Exchange code for tokens and get user info
-        redirect_uri = request.args.get('redirect_uri', 'http://localhost:5000/api/auth/callback')
+        redirect_uri = request.args.get('redirect_uri', get_default_redirect_uri())
+        
+        # Validate redirect URI for security
+        if not validate_redirect_uri(redirect_uri):
+            return jsonify({'error': 'Invalid redirect URI'}), 400
+        
         result = auth_service.handle_auth_callback(code, redirect_uri, state)
         
         # Get user data for whitelist check
