@@ -201,8 +201,11 @@ export function AuthProvider({ children }) {
     dispatch({ type: AUTH_ACTIONS.LOGIN_START });
     
     try {
+      // Construct the redirect URI based on current host
+      const redirectUri = `${window.location.protocol}//${window.location.host.replace(':3000', ':5002')}/api/auth/callback`;
+      
       // Get the OAuth URL
-      const response = await authAPI.initiateGoogleLogin();
+      const response = await authAPI.initiateGoogleLogin(redirectUri);
       const { auth_url } = response.data;
       
       // Redirect to Google OAuth
