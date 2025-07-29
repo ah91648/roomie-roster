@@ -1164,7 +1164,6 @@ def get_blocked_time_slots():
         return jsonify({'error': 'Failed to get blocked time slots'}), 500
 
 @app.route('/api/blocked-time-slots', methods=['POST'])
-@csrf.exempt
 def add_blocked_time_slot():
     """Add a new blocked time slot."""
     try:
@@ -1218,7 +1217,6 @@ def add_blocked_time_slot():
         return jsonify({'error': 'Failed to add blocked time slot'}), 500
 
 @app.route('/api/blocked-time-slots/<int:slot_id>', methods=['PUT'])
-@csrf.exempt
 def update_blocked_time_slot(slot_id):
     """Update an existing blocked time slot."""
     try:
@@ -1277,7 +1275,6 @@ def update_blocked_time_slot(slot_id):
         return jsonify({'error': 'Failed to update blocked time slot'}), 500
 
 @app.route('/api/blocked-time-slots/<int:slot_id>', methods=['DELETE'])
-@csrf.exempt
 def delete_blocked_time_slot(slot_id):
     """Delete a blocked time slot."""
     try:
