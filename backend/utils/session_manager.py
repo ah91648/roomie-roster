@@ -29,8 +29,11 @@ class SessionManager:
                 print("Warning: Generated temporary SECRET_KEY. Set FLASK_SECRET_KEY environment variable for production.")
         
         # Session configuration for security
+        # Detect production environment (Render sets PORT environment variable)
+        is_production = bool(os.getenv('PORT')) or os.getenv('FLASK_ENV') == 'production'
+        
         app.config.update({
-            'SESSION_COOKIE_SECURE': os.getenv('FLASK_ENV') == 'production',  # HTTPS only in production
+            'SESSION_COOKIE_SECURE': is_production,  # HTTPS only in production
             'SESSION_COOKIE_HTTPONLY': True,  # Prevent XSS access to session cookie
             'SESSION_COOKIE_SAMESITE': 'Lax',  # CSRF protection
             'PERMANENT_SESSION_LIFETIME': timedelta(days=30),  # Session expiry
