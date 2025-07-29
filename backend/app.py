@@ -1,3 +1,14 @@
+import sys
+import os
+import logging
+import traceback
+from datetime import datetime
+
+# Add the backend directory to Python path for deployment compatibility
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
 from flask import Flask, jsonify, request, send_from_directory, redirect
 from flask_cors import CORS
 from utils.data_handler import DataHandler
@@ -8,11 +19,6 @@ from utils.session_manager import SessionManager, login_required, roommate_requi
 from utils.user_calendar_service import UserCalendarService
 from utils.security_middleware import SecurityMiddleware, rate_limit, csrf_protected_enhanced, security_validated, auth_rate_limited
 from utils.scheduler_service import SchedulerService
-from datetime import datetime
-import traceback
-import logging
-import sys
-import os
 
 
 # Initialize Flask app
