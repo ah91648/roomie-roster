@@ -11,9 +11,40 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
 
   useEffect(() => {
     if (chore && chore.id) {
+      let ignore = false;
+      
+      const loadSubChores = async () => {
+        try {
+          setLoading(true);
+          setError(null);
+          const response = await subChoreAPI.getAll(chore.id);
+          
+          // Only update state if this effect hasn't been cleaned up
+          if (!ignore) {
+            setSubChores(response.data);
+            if (onSubChoresChange) {
+              onSubChoresChange(response.data);
+            }
+          }
+        } catch (err) {
+          if (!ignore) {
+            setError('Failed to load sub-chores: ' + (err.response?.data?.error || err.message));
+          }
+        } finally {
+          if (!ignore) {
+            setLoading(false);
+          }
+        }
+      };
+
       loadSubChores();
+
+      // Cleanup function to prevent race conditions
+      return () => {
+        ignore = true;
+      };
     }
-  }, [chore]);
+  }, [chore, onSubChoresChange]);
 
   const loadSubChores = async () => {
     try {
