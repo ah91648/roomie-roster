@@ -95,10 +95,28 @@ class DataHandler:
         raise ValueError(f"Chore with id {chore_id} not found")
     
     def delete_chore(self, chore_id: int):
-        """Delete a chore."""
+        """Delete a chore and clean up all related state data."""
+        # Remove chore from chores list
         chores = self.get_chores()
         chores = [c for c in chores if c['id'] != chore_id]
         self.save_chores(chores)
+        
+        # Clean up related state data
+        state = self.get_state()
+        
+        # Remove predefined chore state for this chore
+        if str(chore_id) in state.get('predefined_chore_states', {}):
+            del state['predefined_chore_states'][str(chore_id)]
+        
+        # Remove current assignments for this chore
+        current_assignments = state.get('current_assignments', [])
+        state['current_assignments'] = [
+            assignment for assignment in current_assignments 
+            if assignment.get('chore_id') != chore_id
+        ]
+        
+        # Save the cleaned state
+        self.save_state(state)
     
     # Roommates operations
     def get_roommates(self) -> List[Dict]:

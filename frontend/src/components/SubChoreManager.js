@@ -51,19 +51,22 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
 
     try {
       setError(null);
+      let updatedSubChores;
+      
       if (editingSubChore) {
         // Update existing sub-chore
         const response = await subChoreAPI.update(chore.id, editingSubChore.id, formData);
-        setSubChores(subChores.map(sc => sc.id === editingSubChore.id ? response.data : sc));
+        updatedSubChores = subChores.map(sc => sc.id === editingSubChore.id ? response.data : sc);
+        setSubChores(updatedSubChores);
       } else {
         // Add new sub-chore
         const response = await subChoreAPI.create(chore.id, formData);
-        setSubChores([...subChores, response.data]);
+        updatedSubChores = [...subChores, response.data];
+        setSubChores(updatedSubChores);
       }
+      
+      // Use the calculated updatedSubChores for the callback
       if (onSubChoresChange) {
-        const updatedSubChores = editingSubChore 
-          ? subChores.map(sc => sc.id === editingSubChore.id ? response.data : sc)
-          : [...subChores, response.data];
         onSubChoresChange(updatedSubChores);
       }
       resetForm();

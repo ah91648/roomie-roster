@@ -65,7 +65,7 @@ test.describe('Roommate Management', () => {
     page.on('dialog', dialog => dialog.accept());
     
     // Click delete button
-    await page.click('button', { hasText: 'Delete' }');
+    await page.click('button', { hasText: 'Delete' });
     
     // Wait for the roommate to be removed
     await page.waitForFunction(() => {
