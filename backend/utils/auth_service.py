@@ -44,8 +44,33 @@ class AuthService:
         """Check if Google Authentication is properly configured."""
         if not self.is_available:
             return False
-        return self.auth_credentials_file.exists()
+        # Check if configured via environment variables or credentials file
+        return (os.getenv('GOOGLE_CLIENT_ID') and os.getenv('GOOGLE_CLIENT_SECRET')) or self.auth_credentials_file.exists()
     
+    def _get_credentials_config(self) -> Dict:
+        """Get credentials configuration from environment variables or file."""
+        # First try environment variables (preferred for production)
+        client_id = os.getenv('GOOGLE_CLIENT_ID')
+        client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
+        
+        if client_id and client_secret:
+            return {
+                "web": {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs"
+                }
+            }
+        
+        # Fall back to credentials file
+        if self.auth_credentials_file.exists():
+            with open(self.auth_credentials_file, 'r') as f:
+                return json.load(f)
+        
+        return None
+
     def setup_credentials(self, credentials_json: Dict) -> Dict:
         """Set up Google Authentication credentials from JSON data."""
         if not self.is_available:
@@ -69,13 +94,14 @@ class AuthService:
         if not self.is_available:
             raise Exception("Google Auth API dependencies not installed")
         
-        if not self.auth_credentials_file.exists():
-            raise Exception("Auth credentials file not found. Please upload credentials first.")
+        credentials_config = self._get_credentials_config()
+        if not credentials_config:
+            raise Exception("Auth credentials not found. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables or upload credentials file.")
         
         try:
-            # Create flow from credentials
-            flow = Flow.from_client_secrets_file(
-                str(self.auth_credentials_file), 
+            # Create flow from credentials configuration
+            flow = Flow.from_client_config(
+                credentials_config, 
                 scopes=self.SCOPES
             )
             flow.redirect_uri = redirect_uri
@@ -97,10 +123,14 @@ class AuthService:
         if not self.is_available:
             raise Exception("Google Auth API dependencies not installed")
         
+        credentials_config = self._get_credentials_config()
+        if not credentials_config:
+            raise Exception("Auth credentials not found. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables or upload credentials file.")
+        
         try:
-            # Create flow from credentials
-            flow = Flow.from_client_secrets_file(
-                str(self.auth_credentials_file), 
+            # Create flow from credentials configuration
+            flow = Flow.from_client_config(
+                credentials_config, 
                 scopes=self.SCOPES
             )
             flow.redirect_uri = redirect_uri

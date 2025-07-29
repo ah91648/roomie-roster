@@ -18,10 +18,15 @@ class SessionManager:
     
     def init_app(self, app):
         """Initialize Flask app with secure session configuration."""
-        # Generate secret key if not provided
+        # Set secret key from environment variable or generate temporary one
+        secret_key = os.getenv('FLASK_SECRET_KEY')
         if not app.config.get('SECRET_KEY'):
-            app.config['SECRET_KEY'] = secrets.token_hex(32)
-            print("Warning: Generated temporary SECRET_KEY. Set SECRET_KEY environment variable for production.")
+            if secret_key:
+                app.config['SECRET_KEY'] = secret_key
+                print("✅ Using SECRET_KEY from environment variable.")
+            else:
+                app.config['SECRET_KEY'] = secrets.token_hex(32)
+                print("Warning: Generated temporary SECRET_KEY. Set FLASK_SECRET_KEY environment variable for production.")
         
         # Session configuration for security
         app.config.update({
