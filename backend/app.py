@@ -64,7 +64,10 @@ CORS(app, resources={
 })
 
 # Initialize data handler, assignment logic, calendar service, and authentication
-data_handler = DataHandler()
+# Get the directory of this script to ensure correct data path
+script_dir = os.path.dirname(os.path.abspath(__file__))
+data_dir = os.path.join(script_dir, "data")
+data_handler = DataHandler(data_dir)
 assignment_logic = ChoreAssignmentLogic(data_handler)
 calendar_service = CalendarService()
 auth_service = AuthService()
