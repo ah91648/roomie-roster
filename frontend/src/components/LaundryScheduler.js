@@ -26,9 +26,29 @@ const LaundryScheduler = () => {
     notes: ''
   });
 
+  // Helper function to convert 24hr time to 12hr AM/PM format
+  const formatTimeToAMPM = (time24) => {
+    const [hours, minutes] = time24.split(':').map(Number);
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const hours12 = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+    return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+  };
+
+  // Helper function to convert time slot range to display format
+  const formatTimeSlot = (timeSlot) => {
+    const [start, end] = timeSlot.split('-');
+    return `${formatTimeToAMPM(start)}-${formatTimeToAMPM(end)}`;
+  };
+
   const timeSlots = [
-    '06:00-08:00', '08:00-10:00', '10:00-12:00', '12:00-14:00',
-    '14:00-16:00', '16:00-18:00', '18:00-20:00', '20:00-22:00'
+    { value: '06:00-08:00', label: '6:00 AM-8:00 AM' },
+    { value: '08:00-10:00', label: '8:00 AM-10:00 AM' },
+    { value: '10:00-12:00', label: '10:00 AM-12:00 PM' },
+    { value: '12:00-14:00', label: '12:00 PM-2:00 PM' },
+    { value: '14:00-16:00', label: '2:00 PM-4:00 PM' },
+    { value: '16:00-18:00', label: '4:00 PM-6:00 PM' },
+    { value: '18:00-20:00', label: '6:00 PM-8:00 PM' },
+    { value: '20:00-22:00', label: '8:00 PM-10:00 PM' }
   ];
 
   const loadTypes = [
@@ -76,8 +96,8 @@ const LaundryScheduler = () => {
     if (type === 'number') {
       processedValue = parseInt(value) || 0;
     } else if (name === 'roommate_id') {
-      // Always convert roommate_id to integer
-      processedValue = parseInt(value) || '';
+      // Keep roommate_id as string for form state, convert to int only on submit
+      processedValue = value;
     }
     
     setFormData(prev => ({
@@ -86,7 +106,7 @@ const LaundryScheduler = () => {
     }));
 
     // Auto-fill roommate name when roommate is selected
-    if (name === 'roommate_id') {
+    if (name === 'roommate_id' && value) {
       const selectedRoommate = roommates.find(r => r.id === parseInt(value));
       if (selectedRoommate) {
         setFormData(prev => ({
@@ -107,19 +127,20 @@ const LaundryScheduler = () => {
     try {
       setError(null);
       
-      // Prepare data with proper types
-      const submitData = {
-        ...formData,
-        roommate_id: parseInt(formData.roommate_id),
-        estimated_loads: parseInt(formData.estimated_loads) || 1,
-        duration_hours: parseInt(formData.duration_hours) || 2
-      };
-
-      // Validate roommate_id is a positive integer
-      if (!submitData.roommate_id || submitData.roommate_id < 1) {
+      // Convert and validate roommate_id first
+      const roommateId = parseInt(formData.roommate_id);
+      if (isNaN(roommateId) || roommateId < 1) {
         setError('Please select a valid roommate');
         return;
       }
+      
+      // Prepare data with proper types
+      const submitData = {
+        ...formData,
+        roommate_id: roommateId,
+        estimated_loads: parseInt(formData.estimated_loads) || 1,
+        duration_hours: parseInt(formData.duration_hours) || 2
+      };
       
       // Check for conflicts
       const conflictCheck = await laundryAPI.checkConflicts({
@@ -354,7 +375,7 @@ const LaundryScheduler = () => {
                 >
                   <option value="">Select Time Slot</option>
                   {timeSlots.map(slot => (
-                    <option key={slot} value={slot}>{slot}</option>
+                    <option key={slot.value} value={slot.value}>{slot.label}</option>
                   ))}
                 </select>
               </div>
@@ -462,7 +483,7 @@ const LaundryScheduler = () => {
                   </div>
                   <div className="detail-item">
                     <span className="label">Time:</span>
-                    <span>{slot.time_slot}</span>
+                    <span>{formatTimeSlot(slot.time_slot)}</span>
                   </div>
                   <div className="detail-item">
                     <span className="label">Machine:</span>
