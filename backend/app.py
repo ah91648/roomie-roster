@@ -361,17 +361,20 @@ def delete_chore(chore_id):
 def get_sub_chores(chore_id):
     """Get all sub-chores for a specific chore."""
     try:
+        app.logger.info(f"Fetching sub-chores for chore ID: {chore_id}")
         chores = data_handler.get_chores()
         chore = next((c for c in chores if c['id'] == chore_id), None)
         
         if not chore:
+            app.logger.warning(f"Chore not found: {chore_id}")
             return jsonify({'error': 'Chore not found'}), 404
         
         sub_chores = chore.get('sub_chores', [])
+        app.logger.info(f"Successfully retrieved {len(sub_chores)} sub-chores for chore {chore_id}")
         return jsonify(sub_chores)
         
     except Exception as e:
-        print(f"Error getting sub-chores: {e}")
+        app.logger.error(f"Error getting sub-chores for chore {chore_id}: {e}", exc_info=True)
         return jsonify({'error': 'Failed to get sub-chores'}), 500
 
 @app.route('/api/chores/<int:chore_id>/sub-chores', methods=['POST'])

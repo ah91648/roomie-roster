@@ -1,5 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { subChoreAPI } from '../services/api';
+
+// Helper function to create AbortSignal with timeout (Context7 best practice)
+function createTimeoutAbortSignal(timeoutMs) {
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), timeoutMs || 0);
+  
+  // Store timeout ID for cleanup
+  abortController.timeoutId = timeoutId;
+  return abortController;
+}
 
 const SubChoreManager = ({ chore, onSubChoresChange }) => {
   const [subChores, setSubChores] = useState([]);
@@ -8,59 +18,178 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingSubChore, setEditingSubChore] = useState(null);
   const [formData, setFormData] = useState({ name: '' });
+  const [retryCount, setRetryCount] = useState(0);
+  
+  // Refs to prevent stale closures and race conditions
+  const mountedRef = useRef(true);
+  const currentRequestRef = useRef(null);
+  const loadingTimeoutRef = useRef(null);
+  const loadingStateRef = useRef(false);
+  const onSubChoresChangeRef = useRef(onSubChoresChange);
 
+  // Update the ref when the callback changes
   useEffect(() => {
-    if (chore && chore.id) {
-      let ignore = false;
-      
-      const loadSubChores = async () => {
-        try {
-          setLoading(true);
-          setError(null);
-          const response = await subChoreAPI.getAll(chore.id);
-          
-          // Only update state if this effect hasn't been cleaned up
-          if (!ignore) {
-            setSubChores(response.data);
-            if (onSubChoresChange) {
-              onSubChoresChange(response.data);
-            }
-          }
-        } catch (err) {
-          if (!ignore) {
-            setError('Failed to load sub-chores: ' + (err.response?.data?.error || err.message));
-          }
-        } finally {
-          if (!ignore) {
-            setLoading(false);
-          }
-        }
-      };
+    onSubChoresChangeRef.current = onSubChoresChange;
+  }, [onSubChoresChange]);
 
-      loadSubChores();
-
-      // Cleanup function to prevent race conditions
-      return () => {
-        ignore = true;
-      };
+  // Stable callback to prevent useEffect re-runs
+  const stableOnSubChoresChange = useCallback((subChores) => {
+    if (onSubChoresChangeRef.current && mountedRef.current) {
+      onSubChoresChangeRef.current(subChores);
     }
-  }, [chore, onSubChoresChange]);
+  }, []); // No dependencies to prevent re-renders
 
-  const loadSubChores = async () => {
+  // Load sub-chores function with comprehensive error handling
+  const loadSubChores = useCallback(async (choreId, attempt = 0) => {
+    if (!mountedRef.current || !choreId) return;
+
+    // Cancel any existing request
+    if (currentRequestRef.current) {
+      currentRequestRef.current.abort();
+      if (currentRequestRef.current.timeoutId) {
+        clearTimeout(currentRequestRef.current.timeoutId);
+      }
+    }
+
+    // Clear any existing loading timeout
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+
+    // Development logging
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[SubChoreManager] Loading sub-chores for chore ${choreId}, attempt ${attempt + 1}`);
+    }
+
     try {
-      setLoading(true);
-      setError(null);
-      const response = await subChoreAPI.getAll(chore.id);
-      setSubChores(response.data);
-      if (onSubChoresChange) {
-        onSubChoresChange(response.data);
+      if (mountedRef.current) {
+        setLoading(true);
+        loadingStateRef.current = true;
+        setError(null);
+      }
+
+      // Create abort controller with timeout
+      const abortController = createTimeoutAbortSignal(8000); // 8 second API timeout
+      currentRequestRef.current = abortController;
+
+      // Set a loading timeout fallback (12 seconds - longer than API timeout)
+      loadingTimeoutRef.current = setTimeout(() => {
+        if (mountedRef.current && loadingStateRef.current) {
+          console.warn('[SubChoreManager] Loading timeout reached');
+          setError('Loading sub-tasks is taking longer than expected. Please try refreshing the page.');
+          setLoading(false);
+          loadingStateRef.current = false;
+        }
+      }, 12000);
+
+      const response = await subChoreAPI.getAll(choreId, {
+        signal: abortController.signal,
+        timeout: 7000 // Axios timeout (shorter than AbortController timeout)
+      });
+
+      // Clear timeouts on success
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+      if (abortController.timeoutId) {
+        clearTimeout(abortController.timeoutId);
+      }
+
+      // Update state only if component is still mounted
+      if (mountedRef.current) {
+        setSubChores(response.data);
+        setRetryCount(0); // Reset retry count on success
+        loadingStateRef.current = false;
+        stableOnSubChoresChange(response.data);
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[SubChoreManager] Successfully loaded ${response.data.length} sub-chores`);
+        }
       }
     } catch (err) {
-      setError('Failed to load sub-chores: ' + (err.response?.data?.error || err.message));
+      // Clear timeouts on error
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+
+      if (!mountedRef.current) return;
+
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[SubChoreManager] Error loading sub-chores:', err);
+      }
+
+      let errorMessage = 'Failed to load sub-tasks.';
+      
+      if (err.name === 'AbortError') {
+        errorMessage = 'Request was cancelled. This might happen if the request took too long.';
+      } else if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+        errorMessage = 'Request timed out. Please check your connection and try again.';
+      } else if (err.response?.status >= 500) {
+        errorMessage = 'Server error occurred. Please try again in a moment.';
+      } else if (err.response?.status === 404) {
+        errorMessage = 'Sub-tasks not found for this chore.';
+      } else if (err.response?.data?.error) {
+        errorMessage = `Error: ${err.response.data.error}`;
+      } else if (err.message) {
+        errorMessage = `Network error: ${err.message}`;
+      }
+
+      setError(errorMessage);
+      setRetryCount(prev => prev + 1);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        loadingStateRef.current = false;
+      }
+      currentRequestRef.current = null;
     }
-  };
+  }, []); // Removed stableOnSubChoresChange dependency since it's now stable
+
+  // Effect to load sub-chores when chore changes
+  useEffect(() => {
+    if (chore?.id) {
+      loadSubChores(chore.id);
+    } else {
+      // Clear data when no chore
+      setSubChores([]);
+      setError(null);
+      setLoading(false);
+      loadingStateRef.current = false;
+    }
+  }, [chore?.id]); // Removed loadSubChores dependency to prevent infinite re-renders
+
+  // Cleanup on unmount
+  useEffect(() => {
+    mountedRef.current = true;
+    
+    return () => {
+      mountedRef.current = false;
+      
+      // Cancel any pending request
+      if (currentRequestRef.current) {
+        currentRequestRef.current.abort();
+        if (currentRequestRef.current.timeoutId) {
+          clearTimeout(currentRequestRef.current.timeoutId);
+        }
+      }
+      
+      // Clear loading timeout
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  // Retry function for manual retries
+  const retryLoadSubChores = useCallback(() => {
+    if (chore?.id) {
+      loadSubChores(chore.id, retryCount);
+    }
+  }, [chore?.id, retryCount]); // Removed loadSubChores dependency
 
   const resetForm = () => {
     setFormData({ name: '' });
@@ -149,7 +278,21 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
       </div>
 
       {error && (
-        <div className="error-message">{error}</div>
+        <div className="error-message">
+          <div className="error-text">{error}</div>
+          <button 
+            onClick={retryLoadSubChores}
+            className="btn-retry"
+            disabled={loading}
+          >
+            {loading ? 'Retrying...' : 'Try Again'}
+          </button>
+          {retryCount > 2 && (
+            <div className="error-help">
+              <small>If this problem persists, try refreshing the page or check your internet connection.</small>
+            </div>
+          )}
+        </div>
       )}
 
       {showAddForm && (
@@ -212,7 +355,19 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
       )}
 
       {loading ? (
-        <div className="loading">Loading sub-tasks...</div>
+        <div className="loading">
+          <div className="loading-spinner">⏳</div>
+          <div className="loading-text">
+            Loading sub-tasks...
+            {retryCount > 0 && <span className="retry-indicator"> (Attempt {retryCount + 1})</span>}
+          </div>
+          <div className="loading-progress">
+            <div className="progress-bar">
+              <div className="progress-fill"></div>
+            </div>
+            <small>This usually takes a few seconds</small>
+          </div>
+        </div>
       ) : (
         <div className="sub-chores-list">
           {subChores.length === 0 ? (
