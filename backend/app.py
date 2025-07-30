@@ -177,6 +177,54 @@ def health_check():
     """Health check endpoint."""
     return jsonify({'status': 'healthy', 'message': 'RoomieRoster API is running'})
 
+# Debug endpoint for OAuth configuration
+@app.route('/api/debug/oauth-config', methods=['GET'])
+def debug_oauth_config():
+    """Debug endpoint to display current OAuth configuration."""
+    try:
+        current_redirect_uri = get_default_redirect_uri()
+        frontend_url = get_frontend_url()
+        
+        # Get all possible redirect URIs for debugging
+        possible_redirect_uris = [
+            'http://localhost:5000/api/auth/callback',
+            'http://localhost:5001/api/auth/callback', 
+            'http://localhost:5002/api/auth/callback',
+            'http://127.0.0.1:5000/api/auth/callback',
+            'http://127.0.0.1:5001/api/auth/callback',
+            'http://127.0.0.1:5002/api/auth/callback',
+            'https://roomie-roster.onrender.com/api/auth/callback'
+        ]
+        
+        # Add custom base URL if set
+        base_url = os.getenv('APP_BASE_URL')
+        if base_url:
+            possible_redirect_uris.append(f'{base_url.rstrip("/")}/api/auth/callback')
+        
+        # Add Render service name pattern if set
+        render_service_name = os.getenv('RENDER_SERVICE_NAME')
+        if render_service_name:
+            possible_redirect_uris.append(f'https://{render_service_name}.onrender.com/api/auth/callback')
+        
+        return jsonify({
+            'current_redirect_uri': current_redirect_uri,
+            'frontend_url': frontend_url,
+            'environment_variables': {
+                'PORT': os.getenv('PORT'),
+                'FLASK_RUN_PORT': os.getenv('FLASK_RUN_PORT'),
+                'APP_BASE_URL': os.getenv('APP_BASE_URL'),
+                'RENDER_SERVICE_NAME': os.getenv('RENDER_SERVICE_NAME'),
+                'FLASK_ENV': os.getenv('FLASK_ENV')
+            },
+            'all_possible_redirect_uris': possible_redirect_uris,
+            'validation_status': {
+                'current_uri_valid': validate_redirect_uri(current_redirect_uri)
+            },
+            'message': 'Add ALL the possible redirect URIs to your Google Cloud Console OAuth 2.0 client'
+        })
+    except Exception as e:
+        return jsonify({'error': f'Debug endpoint failed: {str(e)}'}), 500
+
 # Chores endpoints
 @app.route('/api/chores', methods=['GET'])
 def get_chores():
@@ -1477,9 +1525,19 @@ def initiate_google_login():
         data = request.get_json() or {}
         redirect_uri = data.get('redirect_uri', get_default_redirect_uri())
         
+        # Enhanced logging for debugging OAuth issues
+        app.logger.info(f"🔐 OAuth Login Initiated:")
+        app.logger.info(f"   Requested redirect_uri: {data.get('redirect_uri', 'None (using default)')}")
+        app.logger.info(f"   Using redirect_uri: {redirect_uri}")
+        app.logger.info(f"   Environment: PORT={os.getenv('PORT')}, RENDER_SERVICE_NAME={os.getenv('RENDER_SERVICE_NAME')}")
+        app.logger.info(f"   APP_BASE_URL: {os.getenv('APP_BASE_URL', 'Not set')}")
+        
         # Validate redirect URI for security
         if not validate_redirect_uri(redirect_uri):
+            app.logger.error(f"❌ Invalid redirect URI rejected: {redirect_uri}")
             return jsonify({'error': 'Invalid redirect URI'}), 400
+        
+        app.logger.info(f"✅ Redirect URI validated successfully: {redirect_uri}")
         
         # Generate state token for CSRF protection
         state_token = os.urandom(32).hex()
@@ -1489,12 +1547,14 @@ def initiate_google_login():
         session['oauth_state'] = state_token
         
         auth_url = auth_service.get_auth_url(redirect_uri, state_token)
+        app.logger.info(f"🔗 Generated auth URL with redirect_uri: {redirect_uri}")
         
         return jsonify({
             'auth_url': auth_url,
             'state': state_token
         })
     except Exception as e:
+        app.logger.error(f"❌ Error initiating Google login: {e}")
         print(f"Error initiating Google login: {e}")
         return jsonify({'error': str(e)}), 500
 
@@ -1507,8 +1567,22 @@ def handle_auth_callback():
         # Get authorization code and state from callback
         code = request.args.get('code')
         state = request.args.get('state')
+        error = request.args.get('error')
+        
+        app.logger.info(f"🔄 OAuth Callback Received:")
+        app.logger.info(f"   Has code: {bool(code)}")
+        app.logger.info(f"   Has state: {bool(state)}")
+        app.logger.info(f"   Error param: {error}")
+        app.logger.info(f"   Full URL: {request.url}")
+        
+        if error:
+            app.logger.error(f"❌ OAuth error from Google: {error}")
+            frontend_url = get_frontend_url()
+            error_url = f"{frontend_url}?auth=error&message=OAuth error: {error}"
+            return redirect(error_url)
         
         if not code:
+            app.logger.error(f"❌ Missing authorization code in callback")
             frontend_url = get_frontend_url()
             error_url = f"{frontend_url}?auth=error&message=Missing authorization code"
             return redirect(error_url)
