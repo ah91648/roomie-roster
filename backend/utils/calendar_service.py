@@ -30,6 +30,29 @@ class CalendarService:
         if not self.is_available:
             print("Google Calendar API dependencies not available. Install with: pip install -r requirements.txt")
     
+    def _get_default_redirect_uri(self) -> str:
+        """Get the appropriate calendar redirect URI based on environment."""
+        # Check for custom base URL override first (useful for other deployment platforms)
+        base_url = os.getenv('APP_BASE_URL')
+        if base_url:
+            return f'{base_url.rstrip("/")}/api/calendar/callback'
+        
+        # Check if we're running on Render - use explicit production URL
+        # Render sets PORT environment variable, and we can also check for RENDER_SERVICE_NAME
+        if os.getenv('RENDER_SERVICE_NAME') or (os.getenv('PORT') and not os.getenv('FLASK_ENV') == 'development'):
+            # Production environment - use the known production URL
+            return 'https://roomie-roster.onrender.com/api/calendar/callback'
+        
+        # Development environment - detect the actual port being used
+        port = os.getenv('PORT') or os.getenv('FLASK_RUN_PORT', '5000')
+        
+        # Handle common development port scenarios (5000, 5001, 5002)
+        if port in ['5000', '5001', '5002']:
+            return f'http://localhost:{port}/api/calendar/callback'
+        
+        # Default fallback for development
+        return 'http://localhost:5000/api/calendar/callback'
+    
     def is_configured(self) -> bool:
         """Check if Google Calendar is properly configured."""
         if not self.is_available:
@@ -73,7 +96,7 @@ class CalendarService:
             flow = InstalledAppFlow.from_client_secrets_file(
                 str(self.credentials_file), self.SCOPES
             )
-            flow.redirect_uri = 'http://localhost:5000/api/calendar/callback'
+            flow.redirect_uri = self._get_default_redirect_uri()
             
             auth_url, _ = flow.authorization_url(
                 access_type='offline',
@@ -93,7 +116,7 @@ class CalendarService:
             flow = InstalledAppFlow.from_client_secrets_file(
                 str(self.credentials_file), self.SCOPES
             )
-            flow.redirect_uri = 'http://localhost:5000/api/calendar/callback'
+            flow.redirect_uri = self._get_default_redirect_uri()
             
             flow.fetch_token(code=authorization_code)
             
