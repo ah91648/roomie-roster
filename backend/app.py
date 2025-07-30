@@ -278,6 +278,8 @@ def add_chore():
         return jsonify({'error': 'Failed to add chore'}), 500
 
 @app.route('/api/chores/<int:chore_id>', methods=['PUT'])
+@rate_limit('api')
+@csrf_protected_enhanced
 def update_chore(chore_id):
     """Update an existing chore."""
     try:
@@ -318,22 +320,39 @@ def update_chore(chore_id):
         return jsonify({'error': 'Failed to update chore'}), 500
 
 @app.route('/api/chores/<int:chore_id>', methods=['DELETE'])
+@rate_limit('api')
+@csrf_protected_enhanced
 def delete_chore(chore_id):
     """Delete a chore."""
     try:
+        app.logger.info(f"🗑️  Chore deletion requested: ID {chore_id}")
         chores = data_handler.get_chores()
         original_count = len(chores)
+        app.logger.info(f"   Current chore count: {original_count}")
+        
+        # Check if chore exists before attempting deletion
+        chore_exists = any(c['id'] == chore_id for c in chores)
+        if not chore_exists:
+            app.logger.warning(f"❌ Chore {chore_id} not found for deletion")
+            return jsonify({'error': 'Chore not found'}), 404
         
         data_handler.delete_chore(chore_id)
+        app.logger.info(f"✅ Chore {chore_id} deleted from data handler")
         
         # Check if anything was actually deleted
         new_chores = data_handler.get_chores()
-        if len(new_chores) == original_count:
-            return jsonify({'error': 'Chore not found'}), 404
+        new_count = len(new_chores)
+        app.logger.info(f"   New chore count: {new_count}")
         
+        if new_count == original_count:
+            app.logger.error(f"❌ Chore deletion failed - count unchanged: {original_count}")
+            return jsonify({'error': 'Chore deletion failed'}), 500
+        
+        app.logger.info(f"✅ Chore {chore_id} successfully deleted (count: {original_count} → {new_count})")
         return jsonify({'message': 'Chore deleted successfully'}), 200
         
     except Exception as e:
+        app.logger.error(f"❌ Error deleting chore {chore_id}: {e}")
         print(f"Error deleting chore: {e}")
         return jsonify({'error': 'Failed to delete chore'}), 500
 
