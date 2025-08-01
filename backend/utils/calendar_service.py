@@ -65,10 +65,27 @@ class CalendarService:
             return False
         
         try:
+            # Try loading with just calendar scope first
             creds = Credentials.from_authorized_user_file(str(self.token_file), self.SCOPES)
             return creds.valid or creds.refresh_token is not None
         except Exception:
-            return False
+            # If that fails, try loading with expanded scopes that might be present
+            expanded_scopes = [
+                'https://www.googleapis.com/auth/calendar',
+                'https://www.googleapis.com/auth/userinfo.email',
+                'https://www.googleapis.com/auth/userinfo.profile',
+                'openid'
+            ]
+            try:
+                creds = Credentials.from_authorized_user_file(str(self.token_file), expanded_scopes)
+                # Verify we have the required calendar scope
+                if creds.scopes:
+                    required_scope = 'https://www.googleapis.com/auth/calendar'
+                    if required_scope not in creds.scopes:
+                        return False
+                return creds.valid or creds.refresh_token is not None
+            except Exception:
+                return False
     
     def setup_credentials(self, credentials_json: Dict) -> Dict:
         """Set up Google Calendar credentials from JSON data."""
@@ -100,7 +117,8 @@ class CalendarService:
             
             auth_url, _ = flow.authorization_url(
                 access_type='offline',
-                include_granted_scopes='true'
+                include_granted_scopes='true',
+                prompt='consent'  # Force consent screen to avoid scope conflicts
             )
             
             return auth_url
@@ -113,20 +131,73 @@ class CalendarService:
             raise Exception("Google Calendar API dependencies not installed")
         
         try:
+            # Create flow with flexible scope handling
             flow = InstalledAppFlow.from_client_secrets_file(
                 str(self.credentials_file), self.SCOPES
             )
             flow.redirect_uri = self._get_default_redirect_uri()
             
-            flow.fetch_token(code=authorization_code)
+            try:
+                # First, try the standard flow
+                flow.fetch_token(code=authorization_code)
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "scope has changed" in error_msg or "scope" in error_msg:
+                    # Handle scope mismatch by creating a more permissive flow
+                    # This commonly happens when user already has authentication with additional scopes
+                    print(f"Scope mismatch detected, attempting flexible token exchange: {str(e)}")
+                    
+                    # Try with expanded scopes that might be present
+                    expanded_scopes = [
+                        'https://www.googleapis.com/auth/calendar',
+                        'https://www.googleapis.com/auth/userinfo.email',
+                        'https://www.googleapis.com/auth/userinfo.profile',
+                        'openid'
+                    ]
+                    
+                    flow_expanded = InstalledAppFlow.from_client_secrets_file(
+                        str(self.credentials_file), expanded_scopes
+                    )
+                    flow_expanded.redirect_uri = self._get_default_redirect_uri()
+                    
+                    try:
+                        flow_expanded.fetch_token(code=authorization_code)
+                        flow = flow_expanded  # Use the successful flow
+                        print("Successfully handled OAuth with expanded scopes")
+                    except Exception as e2:
+                        # If expanded scopes also fail, provide helpful error message
+                        raise Exception(
+                            f"OAuth authorization failed with scope conflicts. "
+                            f"This usually happens when you have existing Google authentication with different scopes. "
+                            f"Please try one of these solutions: "
+                            f"1) Log out of all Google accounts and try again, "
+                            f"2) Use an incognito/private browser window, or "
+                            f"3) Clear your browser's cookies for Google. "
+                            f"Original error: {str(e)}. Retry error: {str(e2)}"
+                        )
+                else:
+                    # Re-raise non-scope related errors
+                    raise e
             
-            # Save token
+            # Validate that our required scope is present
+            if flow.credentials.scopes:
+                required_scope = 'https://www.googleapis.com/auth/calendar'
+                if required_scope not in flow.credentials.scopes:
+                    raise Exception(f"Required calendar scope not granted. Granted scopes: {flow.credentials.scopes}")
+            
+            # Save token with all granted scopes
             with open(self.token_file, 'w') as f:
                 f.write(flow.credentials.to_json())
             
-            return {"message": "OAuth setup completed successfully"}
+            scopes_info = f" (Granted scopes: {', '.join(flow.credentials.scopes)})" if flow.credentials.scopes else ""
+            return {"message": f"OAuth setup completed successfully{scopes_info}"}
+            
         except Exception as e:
-            raise Exception(f"OAuth callback failed: {str(e)}")
+            if "OAuth authorization failed with scope conflicts" in str(e):
+                # Re-raise our detailed error message
+                raise e
+            else:
+                raise Exception(f"OAuth callback failed: {str(e)}")
     
     def _get_service(self):
         """Get authenticated Google Calendar service."""
@@ -140,7 +211,22 @@ class CalendarService:
         
         # Load existing token
         if self.token_file.exists():
-            creds = Credentials.from_authorized_user_file(str(self.token_file), self.SCOPES)
+            try:
+                # Try loading with just calendar scope first
+                creds = Credentials.from_authorized_user_file(str(self.token_file), self.SCOPES)
+            except Exception as e:
+                # If that fails, try loading with expanded scopes that might be present
+                expanded_scopes = [
+                    'https://www.googleapis.com/auth/calendar',
+                    'https://www.googleapis.com/auth/userinfo.email',
+                    'https://www.googleapis.com/auth/userinfo.profile',
+                    'openid'
+                ]
+                try:
+                    creds = Credentials.from_authorized_user_file(str(self.token_file), expanded_scopes)
+                    print(f"Loaded credentials with expanded scopes: {expanded_scopes}")
+                except Exception as e2:
+                    raise Exception(f"Failed to load credentials with any scope configuration. Original error: {str(e)}, Expanded scope error: {str(e2)}")
         
         # If there are no valid credentials, raise exception
         if not creds or not creds.valid:
@@ -154,6 +240,12 @@ class CalendarService:
                     raise Exception(f"Failed to refresh token: {str(e)}")
             else:
                 raise Exception("No valid credentials found. Please complete OAuth setup.")
+        
+        # Verify we have calendar access
+        if creds.scopes:
+            required_scope = 'https://www.googleapis.com/auth/calendar'
+            if required_scope not in creds.scopes:
+                raise Exception(f"Credentials do not include required calendar scope. Available scopes: {creds.scopes}")
         
         self.service = build('calendar', 'v3', credentials=creds)
         return self.service
