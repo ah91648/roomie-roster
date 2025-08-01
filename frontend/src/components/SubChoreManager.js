@@ -1,5 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { subChoreAPI } from '../services/api';
+
+// Helper function to create AbortSignal with timeout (Context7 best practice)
+function createTimeoutAbortSignal(timeoutMs) {
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), timeoutMs || 0);
+  
+  // Store timeout ID for cleanup
+  abortController.timeoutId = timeoutId;
+  return abortController;
+}
 
 const SubChoreManager = ({ chore, onSubChoresChange }) => {
   const [subChores, setSubChores] = useState([]);
@@ -8,40 +18,178 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingSubChore, setEditingSubChore] = useState(null);
   const [formData, setFormData] = useState({ name: '' });
+  const [retryCount, setRetryCount] = useState(0);
+  
+  // Refs to prevent stale closures and race conditions
+  const mountedRef = useRef(true);
+  const currentRequestRef = useRef(null);
+  const loadingTimeoutRef = useRef(null);
+  const loadingStateRef = useRef(false);
+  const onSubChoresChangeRef = useRef(onSubChoresChange);
 
-  // Simple, reliable loading function
-  const loadSubChores = async () => {
-    if (!chore?.id) return;
-    
-    setLoading(true);
-    setError(null);
-    
+  // Update the ref when the callback changes
+  useEffect(() => {
+    onSubChoresChangeRef.current = onSubChoresChange;
+  }, [onSubChoresChange]);
+
+  // Stable callback to prevent useEffect re-runs
+  const stableOnSubChoresChange = useCallback((subChores) => {
+    if (onSubChoresChangeRef.current && mountedRef.current) {
+      onSubChoresChangeRef.current(subChores);
+    }
+  }, []); // No dependencies to prevent re-renders
+
+  // Load sub-chores function with comprehensive error handling
+  const loadSubChores = useCallback(async (choreId, attempt = 0) => {
+    if (!mountedRef.current || !choreId) return;
+
+    // Cancel any existing request
+    if (currentRequestRef.current) {
+      currentRequestRef.current.abort();
+      if (currentRequestRef.current.timeoutId) {
+        clearTimeout(currentRequestRef.current.timeoutId);
+      }
+    }
+
+    // Clear any existing loading timeout
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+
+    // Development logging
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[SubChoreManager] Loading sub-chores for chore ${choreId}, attempt ${attempt + 1}`);
+    }
+
     try {
-      console.log('Loading sub-chores for chore:', chore.id);
-      const response = await subChoreAPI.getAll(chore.id);
-      console.log('Sub-chores loaded:', response.data);
-      setSubChores(response.data || []);
-      if (onSubChoresChange) {
-        onSubChoresChange(response.data || []);
+      if (mountedRef.current) {
+        setLoading(true);
+        loadingStateRef.current = true;
+        setError(null);
+      }
+
+      // Create abort controller with timeout
+      const abortController = createTimeoutAbortSignal(8000); // 8 second API timeout
+      currentRequestRef.current = abortController;
+
+      // Set a loading timeout fallback (12 seconds - longer than API timeout)
+      loadingTimeoutRef.current = setTimeout(() => {
+        if (mountedRef.current && loadingStateRef.current) {
+          console.warn('[SubChoreManager] Loading timeout reached');
+          setError('Loading sub-tasks is taking longer than expected. Please try refreshing the page.');
+          setLoading(false);
+          loadingStateRef.current = false;
+        }
+      }, 12000);
+
+      const response = await subChoreAPI.getAll(choreId, {
+        signal: abortController.signal,
+        timeout: 7000 // Axios timeout (shorter than AbortController timeout)
+      });
+
+      // Clear timeouts on success
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+      if (abortController.timeoutId) {
+        clearTimeout(abortController.timeoutId);
+      }
+
+      // Update state only if component is still mounted
+      if (mountedRef.current) {
+        setSubChores(response.data);
+        setRetryCount(0); // Reset retry count on success
+        loadingStateRef.current = false;
+        stableOnSubChoresChange(response.data);
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[SubChoreManager] Successfully loaded ${response.data.length} sub-chores`);
+        }
       }
     } catch (err) {
-      console.error('Error loading sub-chores:', err);
-      setError('Failed to load sub-tasks: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setLoading(false);
-    }
-  };
+      // Clear timeouts on error
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
 
-  // Load sub-chores when chore changes
+      if (!mountedRef.current) return;
+
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[SubChoreManager] Error loading sub-chores:', err);
+      }
+
+      let errorMessage = 'Failed to load sub-tasks.';
+      
+      if (err.name === 'AbortError') {
+        errorMessage = 'Request was cancelled. This might happen if the request took too long.';
+      } else if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+        errorMessage = 'Request timed out. Please check your connection and try again.';
+      } else if (err.response?.status >= 500) {
+        errorMessage = 'Server error occurred. Please try again in a moment.';
+      } else if (err.response?.status === 404) {
+        errorMessage = 'Sub-tasks not found for this chore.';
+      } else if (err.response?.data?.error) {
+        errorMessage = `Error: ${err.response.data.error}`;
+      } else if (err.message) {
+        errorMessage = `Network error: ${err.message}`;
+      }
+
+      setError(errorMessage);
+      setRetryCount(prev => prev + 1);
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+        loadingStateRef.current = false;
+      }
+      currentRequestRef.current = null;
+    }
+  }, []); // Removed stableOnSubChoresChange dependency since it's now stable
+
+  // Effect to load sub-chores when chore changes
   useEffect(() => {
     if (chore?.id) {
-      loadSubChores();
+      loadSubChores(chore.id);
     } else {
+      // Clear data when no chore
       setSubChores([]);
       setError(null);
       setLoading(false);
+      loadingStateRef.current = false;
     }
-  }, [chore?.id]);
+  }, [chore?.id]); // Removed loadSubChores dependency to prevent infinite re-renders
+
+  // Cleanup on unmount
+  useEffect(() => {
+    mountedRef.current = true;
+    
+    return () => {
+      mountedRef.current = false;
+      
+      // Cancel any pending request
+      if (currentRequestRef.current) {
+        currentRequestRef.current.abort();
+        if (currentRequestRef.current.timeoutId) {
+          clearTimeout(currentRequestRef.current.timeoutId);
+        }
+      }
+      
+      // Clear loading timeout
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  // Retry function for manual retries
+  const retryLoadSubChores = useCallback(() => {
+    if (chore?.id) {
+      loadSubChores(chore.id, retryCount);
+    }
+  }, [chore?.id, retryCount]); // Removed loadSubChores dependency
 
   const resetForm = () => {
     setFormData({ name: '' });
@@ -69,13 +217,15 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
         // Update existing sub-chore
         const response = await subChoreAPI.update(chore.id, editingSubChore.id, formData);
         updatedSubChores = subChores.map(sc => sc.id === editingSubChore.id ? response.data : sc);
+        setSubChores(updatedSubChores);
       } else {
         // Add new sub-chore
         const response = await subChoreAPI.create(chore.id, formData);
         updatedSubChores = [...subChores, response.data];
+        setSubChores(updatedSubChores);
       }
       
-      setSubChores(updatedSubChores);
+      // Use the calculated updatedSubChores for the callback
       if (onSubChoresChange) {
         onSubChoresChange(updatedSubChores);
       }
@@ -113,7 +263,8 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
         <div className="header-content">
           <div className="header-icon">📋</div>
           <div className="header-text">
-            <h4>Sub-tasks for "{chore?.name}"</h4>
+            <h4>Sub-tasks</h4>
+            <span className="chore-name">"{chore?.name}"</span>
           </div>
         </div>
         <button 
@@ -127,122 +278,74 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
       </div>
 
       {error && (
-        <div className="error-message" style={{
-          background: '#fee',
-          border: '1px solid #faa',
-          borderRadius: '4px',
-          padding: '10px',
-          margin: '10px 0',
-          color: '#c33'
-        }}>
+        <div className="error-message">
           <div className="error-text">{error}</div>
           <button 
-            onClick={loadSubChores}
-            style={{
-              background: '#007cba',
-              color: 'white',
-              border: 'none',
-              padding: '5px 10px',
-              borderRadius: '3px',
-              marginTop: '5px',
-              cursor: 'pointer'
-            }}
+            onClick={retryLoadSubChores}
+            className="btn-retry"
             disabled={loading}
           >
             {loading ? 'Retrying...' : 'Try Again'}
           </button>
+          {retryCount > 2 && (
+            <div className="error-help">
+              <small>If this problem persists, try refreshing the page or check your internet connection.</small>
+            </div>
+          )}
         </div>
       )}
 
       {showAddForm && (
-        <div 
-          className="sub-chore-form-overlay" 
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000
-          }}
-          onClick={(e) => e.target === e.currentTarget && resetForm()}
-        >
-          <div 
-            className="sub-chore-form modern-modal"
-            style={{
-              background: 'white',
-              borderRadius: '8px',
-              padding: '20px',
-              minWidth: '400px',
-              maxWidth: '90%'
-            }}
-          >
-            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3>{editingSubChore ? 'Edit Sub-task' : 'Add New Sub-task'}</h3>
+        <div className="sub-chore-form-overlay" onClick={(e) => e.target === e.currentTarget && resetForm()}>
+          <div className="sub-chore-form modern-modal">
+            <div className="modal-header">
+              <div className="modal-title">
+                <span className="modal-icon">
+                  {editingSubChore ? '✏️' : '➕'}
+                </span>
+                <h3>{editingSubChore ? 'Edit Sub-task' : 'Add New Sub-task'}</h3>
+              </div>
               <button 
                 type="button" 
                 onClick={resetForm}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  fontSize: '20px',
-                  cursor: 'pointer'
-                }}
+                className="modal-close-button"
+                title="Close"
               >
                 ✕
               </button>
             </div>
             <form onSubmit={handleSubmit}>
-              <div className="form-group" style={{ marginBottom: '15px' }}>
-                <label htmlFor="subChoreName" style={{ display: 'block', marginBottom: '5px' }}>Sub-task Description</label>
-                <input
-                  type="text"
-                  id="subChoreName"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  placeholder="e.g., Scrub the bathtub, Clean mirrors..."
-                  style={{
-                    width: '100%',
-                    padding: '8px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px'
-                  }}
-                  required
-                  autoFocus
-                />
-                <small style={{ color: '#666', fontSize: '12px' }}>Be specific to make it easier to track completion</small>
+              <div className="modal-body">
+                <div className="form-group modern-input-group">
+                  <label htmlFor="subChoreName">Sub-task Description</label>
+                  <div className="input-wrapper">
+                    <input
+                      type="text"
+                      id="subChoreName"
+                      name="name"
+                      value={formData.name}
+                      onChange={handleInputChange}
+                      placeholder="e.g., Scrub the bathtub, Clean mirrors..."
+                      className="modern-input"
+                      required
+                      autoFocus
+                    />
+                  </div>
+                  <small className="input-help">Be specific to make it easier to track completion</small>
+                </div>
               </div>
-              <div className="modal-footer" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <div className="modal-footer">
                 <button 
                   type="button" 
                   onClick={resetForm}
-                  style={{
-                    padding: '8px 16px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    background: '#f5f5f5',
-                    cursor: 'pointer'
-                  }}
+                  className="btn-cancel"
                 >
                   Cancel
                 </button>
-                <button 
-                  type="submit" 
-                  style={{
-                    padding: '8px 16px',
-                    border: 'none',
-                    borderRadius: '4px',
-                    background: '#007cba',
-                    color: 'white',
-                    cursor: 'pointer'
-                  }}
-                >
+                <button type="submit" className="btn-save">
+                  <span className="btn-icon">
+                    {editingSubChore ? '💾' : '➕'}
+                  </span>
                   {editingSubChore ? 'Update Sub-task' : 'Add Sub-task'}
                 </button>
               </div>
@@ -252,115 +355,63 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
       )}
 
       {loading ? (
-        <div 
-          className="loading" 
-          style={{
-            textAlign: 'center',
-            padding: '20px',
-            background: '#f9f9f9',
-            borderRadius: '4px',
-            margin: '10px 0'
-          }}
-        >
-          <div style={{ fontSize: '18px', marginBottom: '10px' }}>⏳</div>
-          <div>Loading sub-tasks...</div>
+        <div className="loading">
+          <div className="loading-spinner">⏳</div>
+          <div className="loading-text">
+            Loading sub-tasks...
+            {retryCount > 0 && <span className="retry-indicator"> (Attempt {retryCount + 1})</span>}
+          </div>
+          <div className="loading-progress">
+            <div className="progress-bar">
+              <div className="progress-fill"></div>
+            </div>
+            <small>This usually takes a few seconds</small>
+          </div>
         </div>
       ) : (
         <div className="sub-chores-list">
           {subChores.length === 0 ? (
-            <div 
-              className="no-sub-chores" 
-              style={{
-                textAlign: 'center',
-                padding: '40px',
-                background: '#f9f9f9',
-                borderRadius: '4px',
-                margin: '10px 0'
-              }}
-            >
-              <div style={{ fontSize: '32px', marginBottom: '10px' }}>📝</div>
-              <h4>No sub-tasks yet</h4>
-              <p>Break this chore into smaller, manageable steps to track progress more easily.</p>
+            <div className="no-sub-chores modern-empty-state">
+              <div className="empty-state-icon">📝</div>
+              <div className="empty-state-text">
+                <h4>No sub-tasks yet</h4>
+                <p>Break this chore into smaller, manageable steps to track progress more easily.</p>
+              </div>
             </div>
           ) : (
-            <div>
-              <div style={{ marginBottom: '10px', fontSize: '14px', color: '#666' }}>
-                <span style={{ 
-                  background: '#007cba', 
-                  color: 'white', 
-                  padding: '2px 8px', 
-                  borderRadius: '12px',
-                  marginRight: '5px'
-                }}>
-                  {subChores.length}
-                </span>
-                sub-task{subChores.length !== 1 ? 's' : ''}
+            <div className="sub-chores-grid">
+              <div className="sub-chores-count">
+                <span className="count-badge">{subChores.length}</span>
+                <span className="count-label">sub-task{subChores.length !== 1 ? 's' : ''}</span>
               </div>
-              <div className="sub-chores-grid">
+              <ul className="sub-chores modern-list">
                 {subChores.map((subChore, index) => (
-                  <div 
-                    key={subChore.id} 
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '10px',
-                      border: '1px solid #ddd',
-                      borderRadius: '4px',
-                      margin: '5px 0',
-                      background: 'white'
-                    }}
-                  >
-                    <div style={{ 
-                      background: '#f0f0f0', 
-                      borderRadius: '50%', 
-                      width: '24px', 
-                      height: '24px', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'center',
-                      marginRight: '10px',
-                      fontSize: '12px',
-                      fontWeight: 'bold'
-                    }}>
-                      {index + 1}
+                  <li key={subChore.id} className="sub-chore-item modern-item">
+                    <div className="item-index">{index + 1}</div>
+                    <div className="sub-chore-content">
+                      <span className="sub-chore-name">{subChore.name}</span>
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <span>{subChore.name}</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: '5px' }}>
+                    <div className="sub-chore-actions">
                       <button 
                         onClick={() => startEditing(subChore)}
-                        style={{
-                          padding: '4px 8px',
-                          border: '1px solid #ddd',
-                          borderRadius: '3px',
-                          background: 'white',
-                          cursor: 'pointer',
-                          fontSize: '12px'
-                        }}
+                        className="btn-edit modern-action-btn"
                         title="Edit sub-task"
                       >
-                        ✏️ Edit
+                        <span className="btn-icon">✏️</span>
+                        <span className="btn-text">Edit</span>
                       </button>
                       <button 
                         onClick={() => deleteSubChore(subChore.id)}
-                        style={{
-                          padding: '4px 8px',
-                          border: '1px solid #faa',
-                          borderRadius: '3px',
-                          background: '#fee',
-                          color: '#c33',
-                          cursor: 'pointer',
-                          fontSize: '12px'
-                        }}
+                        className="btn-delete modern-action-btn danger"
                         title="Delete sub-task"
                       >
-                        🗑️ Delete
+                        <span className="btn-icon">🗑️</span>
+                        <span className="btn-text">Delete</span>
                       </button>
                     </div>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           )}
         </div>

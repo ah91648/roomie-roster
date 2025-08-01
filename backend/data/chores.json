@@ -20,6 +20,11 @@
         "id": 3,
         "name": "Take bags to outdoor bin",
         "completed": false
+      },
+      {
+        "id": 4,
+        "name": "Empty kitchen trash can",
+        "completed": false
       }
     ]
   },
