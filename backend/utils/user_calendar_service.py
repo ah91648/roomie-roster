@@ -17,7 +17,14 @@ except ImportError:
 class UserCalendarService:
     """User-specific Google Calendar integration for RoomieRoster chore assignments."""
     
-    SCOPES = ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/calendar.events']
+    # Use AuthService scopes to ensure compatibility with unified OAuth flow
+    SCOPES = [
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile',
+        'https://www.googleapis.com/auth/calendar',
+        'https://www.googleapis.com/auth/calendar.events',
+        'openid'
+    ]
     
     def __init__(self, data_dir: str = "data"):
         self.data_dir = Path(data_dir)
@@ -93,11 +100,12 @@ class UserCalendarService:
         }
     
     def get_user_credentials(self, google_id: str) -> Optional[Credentials]:
-        """Get Google Calendar credentials for a specific user."""
+        """Get Google Calendar credentials for a specific user with robust scope handling."""
         try:
             # Load auth tokens to get user's credentials
             auth_tokens_file = self.data_dir / "google_auth_tokens.json"
             if not auth_tokens_file.exists():
+                print(f"No auth tokens file found for user {google_id}")
                 return None
             
             with open(auth_tokens_file, 'r') as f:
@@ -105,26 +113,68 @@ class UserCalendarService:
             
             user_data = auth_tokens.get(google_id)
             if not user_data:
+                print(f"No auth data found for user {google_id}")
                 return None
             
-            # Parse credentials
+            # Parse credentials with comprehensive scope handling
             creds_data = json.loads(user_data['credentials'])
-            creds = Credentials.from_authorized_user_info(creds_data, self.SCOPES)
+            
+            try:
+                # First attempt: Use unified scopes (AuthService + Calendar)
+                creds = Credentials.from_authorized_user_info(creds_data, self.SCOPES)
+            except Exception as scope_error:
+                print(f"Scope loading issue for user {google_id}: {str(scope_error)}")
+                
+                # Fallback: Try with just the scopes that were actually granted
+                if 'scopes' in creds_data and creds_data['scopes']:
+                    try:
+                        # Use the exact scopes that were originally granted
+                        original_scopes = creds_data['scopes']
+                        creds = Credentials.from_authorized_user_info(creds_data, original_scopes)
+                        print(f"Successfully loaded credentials with original scopes: {original_scopes}")
+                    except Exception as fallback_error:
+                        print(f"Fallback scope loading also failed for user {google_id}: {str(fallback_error)}")
+                        return None
+                else:
+                    # No scope information available, cannot proceed
+                    print(f"No scope information available for user {google_id}")
+                    return None
+            
+            # Validate that we have the required calendar scopes
+            if creds.scopes:
+                required_calendar_scopes = [
+                    'https://www.googleapis.com/auth/calendar',
+                    'https://www.googleapis.com/auth/calendar.events'
+                ]
+                missing_scopes = [scope for scope in required_calendar_scopes if scope not in creds.scopes]
+                if missing_scopes:
+                    print(f"User {google_id} missing required calendar scopes: {missing_scopes}")
+                    raise Exception(f"Missing required calendar permissions: {', '.join(missing_scopes)}. Please re-authorize the application.")
             
             # Refresh if needed
             if creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-                
-                # Update stored credentials
-                user_data['credentials'] = creds.to_json()
-                auth_tokens[google_id] = user_data
-                with open(auth_tokens_file, 'w') as f:
-                    json.dump(auth_tokens, f, indent=2)
+                try:
+                    creds.refresh(Request())
+                    print(f"Successfully refreshed credentials for user {google_id}")
+                    
+                    # Update stored credentials
+                    user_data['credentials'] = creds.to_json()
+                    auth_tokens[google_id] = user_data
+                    with open(auth_tokens_file, 'w') as f:
+                        json.dump(auth_tokens, f, indent=2)
+                except Exception as refresh_error:
+                    print(f"Failed to refresh credentials for user {google_id}: {str(refresh_error)}")
+                    raise Exception(f"Unable to refresh authentication. Please re-authorize the application.")
             
             return creds
         except Exception as e:
-            print(f"Failed to get user credentials for {google_id}: {str(e)}")
-            return None
+            error_msg = str(e)
+            if "Missing required calendar permissions" in error_msg or "Please re-authorize" in error_msg:
+                # Re-raise user-friendly errors
+                raise Exception(error_msg)
+            else:
+                print(f"Failed to get user credentials for {google_id}: {error_msg}")
+                raise Exception(f"Authentication error. Please try logging out and logging back in.")
     
     def get_user_calendars(self, google_id: str) -> List[Dict]:
         """Get list of calendars for a specific user."""

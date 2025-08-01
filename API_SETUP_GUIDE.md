@@ -10,13 +10,18 @@ RoomieRoster requires the following Google APIs:
 - **Google OAuth 2.0 / Identity API** - User authentication and access control
   - Enables secure login with Google accounts
   - Powers the roommate whitelist system
-  - Required scopes: `userinfo.email`, `userinfo.profile`, `openid`
+  - **Unified OAuth Scopes** (all requested together for seamless experience):
+    - `userinfo.email` - See your primary Google Account email address
+    - `userinfo.profile` - See your personal info, including any personal info you've made publicly available
+    - `calendar` - See, edit, share, and permanently delete all the calendars you can access using Google Calendar
+    - `calendar.events` - View and edit events on all your calendars
+    - `openid` - Associate you with your personal info on Google
 
-### 🔧 **Optional APIs** (Enhanced features)
-- **Google Calendar API** - Calendar integration features
-  - Sync chore assignments to personal calendars
-  - Create calendar reminders for tasks
-  - Required scopes: `calendar`, `calendar.events`
+### 🔧 **Calendar Integration Features** (Included in unified OAuth flow)
+- **Personal Calendar Sync** - Sync chore assignments to individual Google Calendars
+- **Calendar Event Management** - Create, update, and delete chore-related calendar events
+- **Flexible Calendar Selection** - Choose which calendar to sync chores to
+- **Customizable Reminders** - Set reminder preferences for chore events
 
 > **Note**: You can deploy RoomieRoster with just OAuth 2.0 and add Calendar API later if desired.
 
@@ -95,14 +100,16 @@ This is crucial for user authentication to work properly.
 ### 3.3 Configure Scopes
 
 1. Click **"Add or Remove Scopes"**
-2. Filter and select these scopes:
+2. **⚠️ IMPORTANT**: Add ALL these scopes together for unified OAuth flow:
    - `userinfo.email` - See your primary Google Account email address
    - `userinfo.profile` - See your personal info, including any personal info you've made publicly available
-   - `openid` - Associate you with your personal info on Google
-3. If using Calendar API, also add:
    - `calendar` - See, edit, share, and permanently delete all the calendars you can access using Google Calendar
    - `calendar.events` - View and edit events on all your calendars
-4. Click **"Update"**
+   - `openid` - Associate you with your personal info on Google
+3. Click **"Update"**
+
+**🔧 Why Unified Scopes?** 
+RoomieRoster uses a unified OAuth flow that requests all permissions upfront to prevent "scope has changed" errors when users access calendar features after initial login.
 
 ### 3.4 Test Users (Important for Development)
 

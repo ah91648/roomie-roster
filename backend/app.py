@@ -9,6 +9,11 @@ backend_dir = os.path.dirname(os.path.abspath(__file__))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
+# Set environment variable to relax OAuth scope validation
+# This prevents "scope has changed" errors when using the same credentials 
+# across different authentication flows
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
+
 from flask import Flask, jsonify, request, send_from_directory, redirect
 from flask_cors import CORS
 from utils.data_handler import DataHandler

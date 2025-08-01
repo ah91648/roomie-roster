@@ -21,10 +21,12 @@ except ImportError:
 class AuthService:
     """Google Authentication service for RoomieRoster user login."""
     
-    # OAuth scopes for user authentication and profile access
+    # OAuth scopes for user authentication, profile access, and calendar integration
     SCOPES = [
         'https://www.googleapis.com/auth/userinfo.email',
         'https://www.googleapis.com/auth/userinfo.profile',
+        'https://www.googleapis.com/auth/calendar',
+        'https://www.googleapis.com/auth/calendar.events',
         'openid'
     ]
     
