@@ -81,7 +81,7 @@ export const choreAPI = {
 
 // Sub-chores API
 export const subChoreAPI = {
-  getAll: (choreId) => api.get(`/chores/${choreId}/sub-chores`),
+  getAll: (choreId, config = {}) => api.get(`/chores/${choreId}/sub-chores`, config),
   create: (choreId, subChore) => api.post(`/chores/${choreId}/sub-chores`, subChore),
   update: (choreId, subChoreId, subChore) => api.put(`/chores/${choreId}/sub-chores/${subChoreId}`, subChore),
   delete: (choreId, subChoreId) => api.delete(`/chores/${choreId}/sub-chores/${subChoreId}`),

@@ -17,6 +17,9 @@ os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 from flask import Flask, jsonify, request, send_from_directory, redirect
 from flask_cors import CORS
 from utils.data_handler import DataHandler
+from utils.database_data_handler import DatabaseDataHandler
+from utils.database_config import database_config
+from utils.database_init import database_initializer
 from utils.assignment_logic import ChoreAssignmentLogic
 from utils.calendar_service import CalendarService
 from utils.auth_service import AuthService
@@ -68,11 +71,25 @@ CORS(app, resources={
     }
 })
 
-# Initialize data handler, assignment logic, calendar service, and authentication
+# Configure database connection
+database_config.configure_flask_app(app)
+
+# Initialize database if using PostgreSQL
+if database_config.should_use_database():
+    try:
+        database_initializer.initialize_database(app)
+        app.logger.info("Database initialized successfully")
+    except Exception as e:
+        app.logger.error(f"Database initialization failed: {e}")
+        # Don't fail startup - will fall back to JSON files
+
+# Initialize data handler with database support
 # Get the directory of this script to ensure correct data path
 script_dir = os.path.dirname(os.path.abspath(__file__))
 data_dir = os.path.join(script_dir, "data")
-data_handler = DataHandler(data_dir)
+
+# Use DatabaseDataHandler which automatically chooses between database and JSON files
+data_handler = DatabaseDataHandler(data_dir)
 assignment_logic = ChoreAssignmentLogic(data_handler)
 calendar_service = CalendarService()
 auth_service = AuthService()
@@ -179,8 +196,25 @@ def validate_redirect_uri(redirect_uri):
 # Health check endpoint
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Health check endpoint."""
-    return jsonify({'status': 'healthy', 'message': 'RoomieRoster API is running'})
+    """Health check endpoint with database status."""
+    try:
+        # Get database status
+        db_status = database_initializer.get_database_status()
+        
+        health_info = {
+            'status': 'healthy',
+            'message': 'RoomieRoster API is running',
+            'database': db_status,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        return jsonify(health_info)
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'message': f'Health check failed: {str(e)}',
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 # Debug endpoint for OAuth configuration
 @app.route('/api/debug/oauth-config', methods=['GET'])

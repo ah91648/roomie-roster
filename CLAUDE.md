@@ -81,23 +81,145 @@ cd backend
 python -m flake8 .          # If flake8 is installed for linting
 ```
 
+## Database Configuration
+
+RoomieRoster supports both **PostgreSQL** (recommended for production) and **JSON files** (development/fallback) for data persistence.
+
+### Quick Database Setup
+
+**For Production (Neon PostgreSQL - Recommended):**
+
+1. **Sign up for Neon PostgreSQL** (Free 3GB tier):
+   - Visit [neon.tech](https://neon.tech) and create an account
+   - Create a new project and database
+   - Copy the connection string from your dashboard
+
+2. **Configure Environment Variables:**
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your database URL:
+   DATABASE_URL=postgresql://username:password@ep-xxx-pooler.us-east-2.aws.neon.tech/dbname?sslmode=require
+   ```
+
+3. **Run Data Migration:**
+   ```bash
+   cd backend
+   python migrate_data.py  # Migrates existing JSON data to PostgreSQL
+   ```
+
+**For Development (JSON Files):**
+- No setup required - application automatically uses JSON files if no database is configured
+- Data stored in `backend/data/` directory
+
+### Environment Variables
+
+**Required for Production:**
+```bash
+# Database (choose one option)
+DATABASE_URL=postgresql://...  # Option 1: Full connection string
+# OR
+DATABASE_HOST=your-host        # Option 2: Individual parameters
+DATABASE_NAME=your-db
+DATABASE_USER=your-username
+DATABASE_PASSWORD=your-password
+
+# Google OAuth
+GOOGLE_CLIENT_ID=your_client_id
+GOOGLE_CLIENT_SECRET=your_client_secret
+
+# Security
+FLASK_SECRET_KEY=your_32_char_hex_key
+ROOMIE_WHITELIST=email1@domain.com,email2@domain.com
+```
+
+### Storage Architecture
+
+The application automatically detects and uses the best available storage:
+
+1. **PostgreSQL Mode** (when DATABASE_URL is configured):
+   - Persistent storage that survives container restarts
+   - Relational data integrity with foreign keys
+   - Better performance and scalability
+   - Automatic table creation and migration support
+
+2. **JSON File Mode** (fallback when no database configured):
+   - Simple file-based storage in `backend/data/`
+   - Works for development but **data is lost on container restart** in cloud deployments
+   - Automatically used when database connection fails
+
+### Database Migration
+
+**Migrating from JSON to PostgreSQL:**
+
+```bash
+cd backend
+
+# 1. Set up your database URL in .env
+echo "DATABASE_URL=your_neon_connection_string" >> .env
+
+# 2. Run the migration script
+python migrate_data.py
+
+# 3. Verify migration success
+python -c "
+from utils.database_init import database_initializer
+from flask import Flask
+app = Flask(__name__)
+with app.app_context():
+    status = database_initializer.get_database_status()
+    print('Database Status:', status)
+"
+```
+
+**Migration Features:**
+- Preserves all existing data and relationships
+- Handles data type conversions and date parsing
+- Provides detailed migration logs and error handling
+- Supports rollback to JSON files if needed
+- Validates data integrity post-migration
+
+### Database Management Commands
+
+```bash
+# Check database status
+curl http://localhost:5000/api/health
+
+# Reset database (WARNING: Deletes all data!)
+python -c "
+from utils.database_init import database_initializer
+from flask import Flask
+app = Flask(__name__)
+database_initializer.reset_database(app)
+"
+
+# Manual migration from specific data directory
+python migrate_data.py --data-dir /path/to/data
+```
+
 ## Core Architecture
 
 ### Data Flow & State Management
 
 The application follows a clear data flow pattern:
 
-1. **Data Layer (`backend/data/`)**: JSON files serve as the persistence layer
-   - `chores.json`: Chore definitions with frequency, type, points, and sub-tasks
-   - `roommates.json`: Roommate info with current cycle points
-   - `state.json`: Application state including assignment history, rotation tracking, and sub-chore completions
-   - `shopping_list.json`: Shopping list items with purchase history and status tracking
-   - `requests.json`: Purchase requests with approval workflows and auto-approval rules
-   - `laundry_slots.json`: Laundry scheduling with time slots, load types, and machine reservations
-   - `blocked_time_slots.json`: Blocked time periods for preventing scheduling conflicts
+1. **Data Layer**: Hybrid PostgreSQL/JSON persistence system
+   - **PostgreSQL (Production)**: Relational database with proper foreign keys and data integrity
+     - Tables: `roommates`, `chores`, `sub_chores`, `assignments`, `shopping_items`, `requests`, `laundry_slots`, `blocked_time_slots`, `application_state`
+   - **JSON Files (Development/Fallback)**: File-based storage in `backend/data/`
+     - `chores.json`: Chore definitions with frequency, type, points, and sub-tasks
+     - `roommates.json`: Roommate info with current cycle points
+     - `state.json`: Application state including assignment history, rotation tracking, and sub-chore completions
+     - `shopping_list.json`: Shopping list items with purchase history and status tracking
+     - `requests.json`: Purchase requests with approval workflows and auto-approval rules
+     - `laundry_slots.json`: Laundry scheduling with time slots, load types, and machine reservations
+     - `blocked_time_slots.json`: Blocked time periods for preventing scheduling conflicts
 
 2. **Business Logic (`backend/utils/`)**: 
-   - `DataHandler`: Manages all JSON file operations and data integrity
+   - `DatabaseDataHandler`: Hybrid data management supporting both PostgreSQL and JSON files
+   - `DataHandler`: Legacy JSON file operations (maintained for compatibility)
+   - `DatabaseConfig`: Database connection and configuration management
+   - `DatabaseModels`: SQLAlchemy models mirroring JSON data structures
+   - `DatabaseInit`: Database initialization, table creation, and health checks
    - `ChoreAssignmentLogic`: Implements the core fairness algorithms
    - `SchedulerService`: Handles automatic weekly cycle resets using APScheduler
    - `AuthService`: Handles Google OAuth authentication and session management

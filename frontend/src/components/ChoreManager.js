@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { choreAPI } from '../services/api';
 import SubChoreManager from './SubChoreManager';
 
@@ -119,14 +119,14 @@ const ChoreManager = () => {
     setShowingSubChores(showingSubChores === choreId ? null : choreId);
   };
 
-  const handleSubChoresChange = (choreId, subChores) => {
+  const handleSubChoresChange = useCallback((choreId, subChores) => {
     // Update the chore with new sub-chores (for UI consistency)
-    setChores(chores.map(chore => 
+    setChores(prevChores => prevChores.map(chore => 
       chore.id === choreId 
         ? { ...chore, sub_chores: subChores }
         : chore
     ));
-  };
+  }, []);
 
   if (loading) {
     return <div className="loading">Loading chores...</div>;

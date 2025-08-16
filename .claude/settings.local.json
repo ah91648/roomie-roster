@@ -63,7 +63,13 @@
       "Bash(pip3 install:*)",
       "mcp__selenium__puppeteer_fill",
       "Bash(kill:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_tab_select",
+      "WebFetch(domain:render.com)",
+      "WebFetch(domain:community.render.com)"
     ],
     "deny": []
   }
