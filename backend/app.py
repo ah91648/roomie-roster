@@ -28,6 +28,14 @@ from utils.user_calendar_service import UserCalendarService
 from utils.security_middleware import SecurityMiddleware, rate_limit, csrf_protected_enhanced, security_validated, auth_rate_limited
 from utils.scheduler_service import SchedulerService
 
+# Import calendar notification service
+try:
+    from utils.calendar_notification_service import CalendarNotificationService
+    CALENDAR_NOTIFICATIONS_AVAILABLE = True
+except ImportError:
+    CALENDAR_NOTIFICATIONS_AVAILABLE = False
+    CalendarNotificationService = None
+
 
 # Initialize Flask app
 app = Flask(__name__, static_folder='../frontend/build', static_url_path='/')
@@ -96,6 +104,16 @@ auth_service = AuthService()
 user_calendar_service = UserCalendarService()
 session_manager = SessionManager(auth_service=auth_service, data_handler=data_handler)
 security_middleware = SecurityMiddleware()
+
+# Initialize calendar notification service for household-wide notifications
+household_calendar_service = None
+if CALENDAR_NOTIFICATIONS_AVAILABLE:
+    try:
+        household_calendar_service = CalendarNotificationService(data_dir)
+        print("Household calendar notification service initialized successfully")
+    except Exception as e:
+        print(f"Failed to initialize household calendar notification service: {str(e)}")
+        household_calendar_service = None
 
 # Initialize scheduler service for automatic cycle resets
 scheduler_service = SchedulerService(assignment_logic=assignment_logic)
@@ -1119,17 +1137,40 @@ def add_laundry_slot():
         
         data_handler.add_laundry_slot(new_slot)
         
-        # Try to create calendar reminder if configured
-        try:
-            calendar_event = calendar_service.create_laundry_reminder(new_slot)
-            if calendar_event:
-                new_slot['calendar_event_id'] = calendar_event['id']
-                new_slot['calendar_link'] = calendar_event['htmlLink']
-                # Update the slot with calendar info
+        # Try to create household calendar blocking events
+        calendar_success = False
+        if household_calendar_service:
+            try:
+                blocking_result = household_calendar_service.create_laundry_blocking_notification(new_slot)
+                if blocking_result.get("success", False):
+                    calendar_success = True
+                    new_slot['household_calendar_events_created'] = blocking_result.get('successful_blocks', 0)
+                    new_slot['household_calendar_recipients'] = list(blocking_result.get('recipient_details', {}).keys())
+                    print(f"✓ Created laundry blocking events for {new_slot['household_calendar_events_created']} roommates")
+                else:
+                    error_msg = blocking_result.get("error", "Unknown error")
+                    print(f"✗ Failed to create household calendar blocking: {error_msg}")
+            except Exception as household_cal_error:
+                print(f"✗ Exception creating household calendar blocking: {household_cal_error}")
+        
+        # Fallback to individual calendar reminder if configured
+        if not calendar_success:
+            try:
+                calendar_event = calendar_service.create_laundry_reminder(new_slot)
+                if calendar_event:
+                    new_slot['calendar_event_id'] = calendar_event['id']
+                    new_slot['calendar_link'] = calendar_event['htmlLink']
+                    print(f"✓ Created individual calendar reminder as fallback")
+            except Exception as cal_error:
+                print(f"✗ Failed to create individual calendar reminder: {cal_error}")
+        
+        # Update the slot with calendar info if any calendar events were created
+        if calendar_success or new_slot.get('calendar_event_id'):
+            try:
                 data_handler.update_laundry_slot(new_slot['id'], new_slot)
-        except Exception as cal_error:
-            print(f"Failed to create calendar reminder: {cal_error}")
-            # Don't fail the laundry slot creation if calendar fails
+            except Exception as update_error:
+                print(f"✗ Failed to update laundry slot with calendar info: {update_error}")
+                # Don't fail the laundry slot creation if update fails
         
         return jsonify(new_slot), 201
         
@@ -1190,10 +1231,22 @@ def update_laundry_slot(slot_id):
 
 @app.route('/api/laundry-slots/<int:slot_id>', methods=['DELETE'])
 def delete_laundry_slot(slot_id):
-    """Delete a laundry slot."""
+    """Delete a laundry slot and associated calendar events."""
     try:
+        # Delete household calendar events first
+        if household_calendar_service:
+            try:
+                deletion_result = household_calendar_service.delete_laundry_events(slot_id)
+                if deletion_result.get("success", False):
+                    print(f"✓ Deleted {deletion_result.get('successful_deletions', 0)} household calendar events for laundry slot {slot_id}")
+                else:
+                    print(f"✗ Failed to delete household calendar events: {deletion_result.get('error', 'Unknown error')}")
+            except Exception as cal_error:
+                print(f"✗ Exception deleting household calendar events: {cal_error}")
+        
+        # Delete the laundry slot
         data_handler.delete_laundry_slot(slot_id)
-        return jsonify({'message': 'Laundry slot deleted successfully'}), 200
+        return jsonify({'message': 'Laundry slot and calendar events deleted successfully'}), 200
         
     except ValueError as e:
         return jsonify({'error': str(e)}), 404
@@ -1213,6 +1266,20 @@ def complete_laundry_slot(slot_id):
         updated_slot = data_handler.mark_laundry_slot_completed(
             slot_id, actual_loads, completion_notes
         )
+        
+        # Optionally clean up calendar events when laundry is completed
+        # This can be controlled by user preferences in the future
+        if household_calendar_service and data.get('remove_calendar_events', False):
+            try:
+                deletion_result = household_calendar_service.delete_laundry_events(slot_id)
+                if deletion_result.get("success", False):
+                    print(f"✓ Cleaned up {deletion_result.get('successful_deletions', 0)} calendar events for completed laundry slot {slot_id}")
+                    updated_slot['calendar_events_cleaned'] = True
+                else:
+                    print(f"✗ Failed to clean up calendar events: {deletion_result.get('error', 'Unknown error')}")
+            except Exception as cal_error:
+                print(f"✗ Exception cleaning up calendar events: {cal_error}")
+        
         return jsonify(updated_slot)
         
     except ValueError as e:
@@ -1220,6 +1287,282 @@ def complete_laundry_slot(slot_id):
     except Exception as e:
         print(f"Error completing laundry slot: {e}")
         return jsonify({'error': 'Failed to complete laundry slot'}), 500
+
+# =============================================================================
+# HOUSEHOLD CALENDAR MANAGEMENT ENDPOINTS
+# =============================================================================
+
+@app.route('/api/household-calendar/status', methods=['GET'])
+@auth_rate_limited('calendar_status')
+def get_household_calendar_status():
+    """Get comprehensive household calendar status."""
+    try:
+        if not household_calendar_service:
+            return jsonify({
+                'available': False,
+                'error': 'Household calendar service not available'
+            }), 503
+        
+        # Get authentication status
+        auth_status = auth_service.get_household_auth_status()
+        
+        # Get calendar notification status
+        notification_status = household_calendar_service.get_notification_status()
+        
+        # Combine all status information
+        combined_status = {
+            'service_available': True,
+            'authentication': auth_status,
+            'notifications': notification_status,
+            'recommendations': auth_status.get('recommendations', [])
+        }
+        
+        return jsonify(combined_status)
+        
+    except Exception as e:
+        print(f"Error getting household calendar status: {e}")
+        return jsonify({'error': 'Failed to get calendar status'}), 500
+
+@app.route('/api/household-calendar/preferences', methods=['GET'])
+@login_required
+def get_user_calendar_preferences():
+    """Get calendar preferences for the authenticated user."""
+    try:
+        if not household_calendar_service:
+            return jsonify({'error': 'Household calendar service not available'}), 503
+        
+        google_id = session_manager.get_current_user().get('google_id')
+        if not google_id:
+            return jsonify({'error': 'User not linked to Google account'}), 400
+        
+        preferences = household_calendar_service.preferences.get_user_preferences(google_id)
+        effective_preferences = household_calendar_service.preferences.get_effective_preferences(google_id)
+        
+        return jsonify({
+            'user_preferences': preferences,
+            'effective_preferences': effective_preferences,
+            'household_defaults': household_calendar_service.preferences.get_household_preferences()
+        })
+        
+    except Exception as e:
+        print(f"Error getting user calendar preferences: {e}")
+        return jsonify({'error': 'Failed to get calendar preferences'}), 500
+
+@app.route('/api/household-calendar/preferences', methods=['POST'])
+@login_required
+@csrf_protected_enhanced
+def update_user_calendar_preferences():
+    """Update calendar preferences for the authenticated user."""
+    try:
+        if not household_calendar_service:
+            return jsonify({'error': 'Household calendar service not available'}), 503
+        
+        google_id = session_manager.get_current_user().get('google_id')
+        if not google_id:
+            return jsonify({'error': 'User not linked to Google account'}), 400
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No preferences data provided'}), 400
+        
+        result = household_calendar_service.preferences.update_user_preferences(google_id, data)
+        
+        if result.get('success'):
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+        
+    except Exception as e:
+        print(f"Error updating user calendar preferences: {e}")
+        return jsonify({'error': 'Failed to update calendar preferences'}), 500
+
+@app.route('/api/household-calendar/household-preferences', methods=['GET'])
+@auth_rate_limited('household_prefs')
+def get_household_calendar_preferences():
+    """Get household-wide calendar preferences."""
+    try:
+        if not household_calendar_service:
+            return jsonify({'error': 'Household calendar service not available'}), 503
+        
+        preferences = household_calendar_service.preferences.get_household_preferences()
+        return jsonify(preferences)
+        
+    except Exception as e:
+        print(f"Error getting household calendar preferences: {e}")
+        return jsonify({'error': 'Failed to get household preferences'}), 500
+
+@app.route('/api/household-calendar/household-preferences', methods=['POST'])
+@roommate_required
+@csrf_protected_enhanced
+def update_household_calendar_preferences():
+    """Update household-wide calendar preferences (admin only)."""
+    try:
+        if not household_calendar_service:
+            return jsonify({'error': 'Household calendar service not available'}), 503
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No preferences data provided'}), 400
+        
+        result = household_calendar_service.preferences.update_household_preferences(data)
+        
+        if result.get('success'):
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+        
+    except Exception as e:
+        print(f"Error updating household calendar preferences: {e}")
+        return jsonify({'error': 'Failed to update household preferences'}), 500
+
+@app.route('/api/household-calendar/test-access', methods=['POST'])
+@auth_rate_limited('calendar_test')
+def test_household_calendar_access():
+    """Test calendar access for all authenticated roommates."""
+    try:
+        if not household_calendar_service:
+            return jsonify({'error': 'Household calendar service not available'}), 503
+        
+        test_results = household_calendar_service.household_calendar.test_household_calendar_access()
+        return jsonify(test_results)
+        
+    except Exception as e:
+        print(f"Error testing household calendar access: {e}")
+        return jsonify({'error': 'Failed to test calendar access'}), 500
+
+@app.route('/api/household-calendar/cleanup-events', methods=['POST'])
+@roommate_required
+@csrf_protected_enhanced
+def cleanup_orphaned_calendar_events():
+    """Clean up orphaned calendar events."""
+    try:
+        if not household_calendar_service:
+            return jsonify({'error': 'Household calendar service not available'}), 503
+        
+        cleanup_results = household_calendar_service.cleanup_orphaned_events()
+        return jsonify(cleanup_results)
+        
+    except Exception as e:
+        print(f"Error cleaning up calendar events: {e}")
+        return jsonify({'error': 'Failed to cleanup calendar events'}), 500
+
+@app.route('/api/household-calendar/link-roommate', methods=['POST'])
+@login_required
+@csrf_protected_enhanced
+def link_roommate_to_google_account():
+    """Link the authenticated user to a roommate account."""
+    try:
+        google_id = session_manager.get_current_user().get('google_id')
+        if not google_id:
+            return jsonify({'error': 'User not authenticated with Google'}), 400
+        
+        data = request.get_json()
+        roommate_id = data.get('roommate_id')
+        
+        if not roommate_id:
+            return jsonify({'error': 'roommate_id is required'}), 400
+        
+        result = auth_service.link_roommate_to_google_account(roommate_id, google_id)
+        
+        if result.get('success'):
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+        
+    except Exception as e:
+        print(f"Error linking roommate to Google account: {e}")
+        return jsonify({'error': 'Failed to link accounts'}), 500
+
+@app.route('/api/household-calendar/unlink-roommate/<int:roommate_id>', methods=['POST'])
+@roommate_required
+@csrf_protected_enhanced
+def unlink_roommate_from_google_account(roommate_id):
+    """Unlink a roommate from their Google account (admin only)."""
+    try:
+        result = auth_service.unlink_roommate_from_google_account(roommate_id)
+        
+        if result.get('success'):
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+        
+    except Exception as e:
+        print(f"Error unlinking roommate from Google account: {e}")
+        return jsonify({'error': 'Failed to unlink accounts'}), 500
+
+@app.route('/api/household-calendar/sync-status', methods=['GET'])
+@login_required
+def get_user_calendar_sync_status():
+    """Get calendar sync status for the authenticated user."""
+    try:
+        if not household_calendar_service:
+            return jsonify({'error': 'Household calendar service not available'}), 503
+        
+        google_id = session_manager.get_current_user().get('google_id')
+        if not google_id:
+            return jsonify({
+                'linked': False,
+                'sync_enabled': False,
+                'error': 'User not linked to Google account'
+            })
+        
+        sync_status = household_calendar_service.user_calendar_service.get_sync_status(google_id)
+        return jsonify(sync_status)
+        
+    except Exception as e:
+        print(f"Error getting user calendar sync status: {e}")
+        return jsonify({'error': 'Failed to get sync status'}), 500
+
+@app.route('/api/household-calendar/available-calendars', methods=['GET'])
+@login_required
+def get_user_available_calendars():
+    """Get available calendars for the authenticated user."""
+    try:
+        if not household_calendar_service:
+            return jsonify({'error': 'Household calendar service not available'}), 503
+        
+        google_id = session_manager.get_current_user().get('google_id')
+        if not google_id:
+            return jsonify({'error': 'User not linked to Google account'}), 400
+        
+        calendars = household_calendar_service.user_calendar_service.get_user_calendars(google_id)
+        return jsonify({'calendars': calendars})
+        
+    except Exception as e:
+        print(f"Error getting user calendars: {e}")
+        return jsonify({'error': 'Failed to get user calendars'}), 500
+
+@app.route('/api/household-calendar/manual-sync', methods=['POST'])
+@login_required
+@csrf_protected_enhanced
+@rate_limit(limit=5, per=60)  # Limit manual sync to 5 per minute
+def manual_sync_user_chores():
+    """Manually sync user's chores to their calendar."""
+    try:
+        if not household_calendar_service:
+            return jsonify({'error': 'Household calendar service not available'}), 503
+        
+        google_id = session_manager.get_current_user().get('google_id')
+        if not google_id:
+            return jsonify({'error': 'User not linked to Google account'}), 400
+        
+        # Get current assignments for this user
+        current_assignments = data_handler.get_current_assignments()
+        user_assignments = [a for a in current_assignments if a.get('roommate_id') == session_manager.get_current_user().get('linked_roommate_id')]
+        
+        if not user_assignments:
+            return jsonify({
+                'success': True,
+                'message': 'No current assignments to sync',
+                'synced': 0
+            })
+        
+        sync_results = household_calendar_service.user_calendar_service.sync_all_user_chores(google_id, user_assignments)
+        return jsonify(sync_results)
+        
+    except Exception as e:
+        print(f"Error manually syncing user chores: {e}")
+        return jsonify({'error': 'Failed to sync chores'}), 500
 
 @app.route('/api/laundry-slots/check-conflicts', methods=['POST'])
 def check_laundry_conflicts():

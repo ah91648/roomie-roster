@@ -294,3 +294,129 @@ class BlockedTimeSlot(Base):
             'created_date': self.created_date.isoformat() if self.created_date else None,
             'sync_to_calendar': self.sync_to_calendar
         }
+
+class HouseholdCalendarPreferences(Base):
+    """Household calendar preferences model"""
+    __tablename__ = 'household_calendar_preferences'
+    
+    id = Column(Integer, primary_key=True)
+    preferences_data = Column(JSON, nullable=False)  # Store household defaults as JSON
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary matching JSON structure"""
+        return {
+            'id': self.id,
+            'preferences_data': self.preferences_data,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_updated': self.last_updated.isoformat() if self.last_updated else None
+        }
+
+class UserCalendarPreferences(Base):
+    """User-specific calendar preferences model"""
+    __tablename__ = 'user_calendar_preferences'
+    
+    id = Column(Integer, primary_key=True)
+    google_id = Column(String(255), nullable=False, unique=True, index=True)
+    preferences_data = Column(JSON, nullable=False)  # Store user preferences as JSON
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    preferences_version = Column(String(20), default='1.0')
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary matching JSON structure"""
+        return {
+            'id': self.id,
+            'google_id': self.google_id,
+            'preferences_data': self.preferences_data,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_updated': self.last_updated.isoformat() if self.last_updated else None,
+            'preferences_version': self.preferences_version
+        }
+
+class CalendarEventTracking(Base):
+    """Calendar event tracking model for managing event lifecycle"""
+    __tablename__ = 'calendar_event_tracking'
+    
+    id = Column(Integer, primary_key=True)
+    event_type = Column(String(50), nullable=False)  # 'chore', 'laundry', 'blocking'
+    source_id = Column(String(255), nullable=False)  # chore assignment ID, laundry slot ID, etc.
+    google_id = Column(String(255), nullable=False)  # User's Google ID
+    calendar_id = Column(String(255), nullable=False)  # Google Calendar ID
+    event_id = Column(String(255), nullable=False)  # Google Calendar Event ID
+    event_title = Column(String(500), nullable=True)  # Event title for reference
+    notification_type = Column(String(50), nullable=False)  # Type of notification
+    is_assignee = Column(Boolean, default=False)  # True if this user is the assignee
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Indexes for efficient querying
+    __table_args__ = (
+        db.Index('idx_event_type_source', 'event_type', 'source_id'),
+        db.Index('idx_google_id_event_type', 'google_id', 'event_type'),
+        db.Index('idx_source_id', 'source_id'),
+    )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary matching JSON structure"""
+        return {
+            'id': self.id,
+            'event_type': self.event_type,
+            'source_id': self.source_id,
+            'google_id': self.google_id,
+            'calendar_id': self.calendar_id,
+            'event_id': self.event_id,
+            'event_title': self.event_title,
+            'notification_type': self.notification_type,
+            'is_assignee': self.is_assignee,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+class CalendarSyncStatus(Base):
+    """Calendar sync status tracking for monitoring and diagnostics"""
+    __tablename__ = 'calendar_sync_status'
+    
+    id = Column(Integer, primary_key=True)
+    google_id = Column(String(255), nullable=False, index=True)
+    roommate_id = Column(Integer, ForeignKey('roommates.id'), nullable=True)
+    sync_enabled = Column(Boolean, default=False)
+    selected_calendar_id = Column(String(255), default='primary')
+    last_successful_sync = Column(DateTime, nullable=True)
+    last_sync_attempt = Column(DateTime, nullable=True)
+    last_sync_error = Column(Text, nullable=True)
+    total_synced_events = Column(Integer, default=0)
+    total_sync_failures = Column(Integer, default=0)
+    calendar_access_valid = Column(Boolean, default=False)
+    calendar_count = Column(Integer, default=0)
+    missing_scopes = Column(JSON, nullable=True)  # Array of missing OAuth scopes
+    credentials_valid = Column(Boolean, default=False)
+    credentials_expired = Column(Boolean, default=False)
+    has_refresh_token = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    roommate = relationship("Roommate", backref="calendar_sync_status")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary matching JSON structure"""
+        return {
+            'id': self.id,
+            'google_id': self.google_id,
+            'roommate_id': self.roommate_id,
+            'sync_enabled': self.sync_enabled,
+            'selected_calendar_id': self.selected_calendar_id,
+            'last_successful_sync': self.last_successful_sync.isoformat() if self.last_successful_sync else None,
+            'last_sync_attempt': self.last_sync_attempt.isoformat() if self.last_sync_attempt else None,
+            'last_sync_error': self.last_sync_error,
+            'total_synced_events': self.total_synced_events,
+            'total_sync_failures': self.total_sync_failures,
+            'calendar_access_valid': self.calendar_access_valid,
+            'calendar_count': self.calendar_count,
+            'missing_scopes': self.missing_scopes,
+            'credentials_valid': self.credentials_valid,
+            'credentials_expired': self.credentials_expired,
+            'has_refresh_token': self.has_refresh_token,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_updated': self.last_updated.isoformat() if self.last_updated else None
+        }

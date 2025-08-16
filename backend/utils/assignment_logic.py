@@ -3,11 +3,31 @@ from datetime import datetime, timedelta
 from dateutil import parser
 from typing import List, Dict, Optional
 
+try:
+    from .calendar_notification_service import CalendarNotificationService, NotificationType
+    CALENDAR_AVAILABLE = True
+except ImportError:
+    CALENDAR_AVAILABLE = False
+    CalendarNotificationService = None
+    NotificationType = None
+
 class ChoreAssignmentLogic:
     """Handles the logic for assigning chores to roommates."""
     
     def __init__(self, data_handler):
         self.data_handler = data_handler
+        
+        # Initialize calendar notification service if available
+        self.calendar_service = None
+        if CALENDAR_AVAILABLE:
+            try:
+                # Extract data directory from data_handler if possible
+                data_dir = getattr(data_handler, 'data_dir', 'data')
+                self.calendar_service = CalendarNotificationService(data_dir)
+                print("Calendar notification service initialized successfully")
+            except Exception as e:
+                print(f"Failed to initialize calendar notification service: {str(e)}")
+                self.calendar_service = None
     
     def should_start_new_cycle(self) -> bool:
         """Determine if a new assignment cycle should start."""
@@ -164,6 +184,9 @@ class ChoreAssignmentLogic:
         # Update last run date and save assignments
         self.data_handler.update_last_run_date(current_time.isoformat())
         self.data_handler.save_current_assignments(assignments)
+        
+        # Create calendar notifications for new assignments
+        self._create_calendar_notifications_for_assignments(assignments)
         
         return assignments
     
@@ -511,3 +534,132 @@ class ChoreAssignmentLogic:
                     break
         
         return assignments
+    
+    def _create_calendar_notifications_for_assignments(self, assignments: List[Dict]):
+        """
+        Create calendar notifications for all new chore assignments.
+        This method is called after assignments are saved to create corresponding calendar events.
+        """
+        if not self.calendar_service:
+            print("Calendar notification service not available - skipping calendar notifications")
+            return
+        
+        if not assignments:
+            print("No assignments to create calendar notifications for")
+            return
+        
+        print(f"Creating calendar notifications for {len(assignments)} assignments")
+        
+        successful_notifications = 0
+        failed_notifications = 0
+        
+        for assignment in assignments:
+            try:
+                # Create calendar notification for this assignment
+                result = self.calendar_service.create_chore_assignment_notification(
+                    assignment,
+                    NotificationType.CHORE_ASSIGNMENT
+                )
+                
+                if result.get("success", False):
+                    successful_notifications += 1
+                    print(f"✓ Created calendar notification for {assignment['chore_name']} -> {assignment['roommate_name']} "
+                          f"({result.get('successful_notifications', 0)} recipients)")
+                else:
+                    failed_notifications += 1
+                    error_msg = result.get("error", "Unknown error")
+                    print(f"✗ Failed to create calendar notification for {assignment['chore_name']} -> {assignment['roommate_name']}: {error_msg}")
+                    
+            except Exception as e:
+                failed_notifications += 1
+                print(f"✗ Exception creating calendar notification for {assignment['chore_name']} -> {assignment['roommate_name']}: {str(e)}")
+        
+        print(f"Calendar notification summary: {successful_notifications} successful, {failed_notifications} failed")
+    
+    def delete_assignment_calendar_events(self, assignment: Dict) -> bool:
+        """
+        Delete calendar events associated with a specific assignment.
+        Used when assignments are modified or completed.
+        """
+        if not self.calendar_service:
+            return False
+        
+        try:
+            # Generate assignment ID in the same format used by calendar service
+            assignment_id = f"{assignment['chore_id']}_{assignment['roommate_id']}_{assignment['assigned_date']}"
+            
+            result = self.calendar_service.delete_chore_events(assignment_id)
+            
+            if result.get("success", False):
+                print(f"✓ Deleted calendar events for assignment {assignment_id} "
+                      f"({result.get('successful_deletions', 0)} events deleted)")
+                return True
+            else:
+                error_msg = result.get("error", "Unknown error")
+                print(f"✗ Failed to delete calendar events for assignment {assignment_id}: {error_msg}")
+                return False
+                
+        except Exception as e:
+            print(f"✗ Exception deleting calendar events for assignment: {str(e)}")
+            return False
+    
+    def update_assignment_calendar_events(self, old_assignment: Dict, new_assignment: Dict):
+        """
+        Update calendar events when an assignment is modified.
+        Deletes old events and creates new ones.
+        """
+        if not self.calendar_service:
+            return
+        
+        try:
+            # Delete old calendar events
+            self.delete_assignment_calendar_events(old_assignment)
+            
+            # Create new calendar events
+            self._create_calendar_notifications_for_assignments([new_assignment])
+            
+        except Exception as e:
+            print(f"✗ Exception updating calendar events for assignment: {str(e)}")
+    
+    def cleanup_completed_chore_calendar_events(self):
+        """
+        Clean up calendar events for completed or outdated chores.
+        This can be called periodically to maintain calendar hygiene.
+        """
+        if not self.calendar_service:
+            return
+        
+        try:
+            result = self.calendar_service.cleanup_orphaned_events()
+            
+            if result.get("success", False):
+                chore_events_removed = result.get("orphaned_chore_events_removed", 0)
+                laundry_events_removed = result.get("orphaned_laundry_events_removed", 0)
+                print(f"✓ Cleaned up {chore_events_removed} orphaned chore events and {laundry_events_removed} orphaned laundry events")
+            else:
+                error_msg = result.get("error", "Unknown error")
+                print(f"✗ Failed to cleanup orphaned calendar events: {error_msg}")
+                
+        except Exception as e:
+            print(f"✗ Exception during calendar cleanup: {str(e)}")
+    
+    def get_calendar_notification_status(self) -> Dict:
+        """
+        Get status of calendar notification system.
+        Useful for diagnostics and admin dashboard.
+        """
+        if not self.calendar_service:
+            return {
+                "available": False,
+                "error": "Calendar notification service not initialized"
+            }
+        
+        try:
+            status = self.calendar_service.get_notification_status()
+            status["available"] = True
+            return status
+        except Exception as e:
+            return {
+                "available": False,
+                "error": f"Failed to get calendar status: {str(e)}"
+            }
