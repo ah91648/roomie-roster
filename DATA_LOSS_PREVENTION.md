@@ -127,6 +127,8 @@ Now includes:
    postgresql://username:password@ep-xxx-pooler.us-east-2.aws.neon.tech/dbname?sslmode=require
    ```
 
+   postgresql://neondb_owner:npg_G3wnBmtv5lPJ@ep-restless-band-aeejy267-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+
 ### Step 2: Run Automated Setup Script
 
 ```bash

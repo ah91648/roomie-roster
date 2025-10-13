@@ -7,7 +7,7 @@ import os
 import logging
 from typing import Optional
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 # Initialize SQLAlchemy instance
@@ -66,7 +66,7 @@ class DatabaseConfig:
         try:
             engine = create_engine(database_url)
             with engine.connect() as conn:
-                conn.execute("SELECT 1")
+                conn.execute(text("SELECT 1"))
             self.logger.info("Database connection successful, using PostgreSQL storage")
             self._use_database = True
             return True

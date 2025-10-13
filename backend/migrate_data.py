@@ -17,6 +17,16 @@ backend_dir = os.path.dirname(os.path.abspath(__file__))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+project_root = Path(backend_dir).parent
+env_path = project_root / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
+    print(f"✅ Loaded environment variables from {env_path}")
+else:
+    print(f"⚠️ No .env file found at {env_path}")
+
 # Import Flask and database components
 from flask import Flask
 from utils.database_config import database_config, db

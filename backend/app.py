@@ -3,14 +3,23 @@ import os
 import logging
 import traceback
 from datetime import datetime
+from pathlib import Path
 
 # Add the backend directory to Python path for deployment compatibility
 backend_dir = os.path.dirname(os.path.abspath(__file__))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+project_root = Path(backend_dir).parent
+env_path = project_root / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
+    print(f"✅ Loaded environment variables from {env_path}")
+
 # Set environment variable to relax OAuth scope validation
-# This prevents "scope has changed" errors when using the same credentials 
+# This prevents "scope has changed" errors when using the same credentials
 # across different authentication flows
 os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
@@ -2288,6 +2297,127 @@ def get_user_calendar_sync_status():
         print(f"Error getting sync status: {e}")
         return jsonify({'error': 'Failed to get sync status'}), 500
 
+# Audit Logging endpoints
+@app.route('/api/audit/logs', methods=['GET'])
+@login_required
+def get_audit_logs():
+    """Get recent audit logs with optional filtering."""
+    try:
+        from utils.audit_service import AuditService
+
+        # Check if audit logging is enabled
+        if not AuditService.is_audit_enabled():
+            return jsonify({
+                'enabled': False,
+                'message': 'Audit logging requires PostgreSQL database',
+                'logs': []
+            })
+
+        # Get query parameters
+        limit = int(request.args.get('limit', 100))
+        offset = int(request.args.get('offset', 0))
+        table_name = request.args.get('table')
+        operation = request.args.get('operation')
+
+        logs = AuditService.get_recent_logs(
+            limit=limit,
+            offset=offset,
+            table_name=table_name,
+            operation=operation
+        )
+
+        return jsonify({
+            'enabled': True,
+            'logs': logs,
+            'count': len(logs),
+            'limit': limit,
+            'offset': offset
+        })
+    except Exception as e:
+        print(f"Error getting audit logs: {e}")
+        return jsonify({'error': 'Failed to get audit logs'}), 500
+
+@app.route('/api/audit/record/<string:table_name>/<int:record_id>', methods=['GET'])
+@login_required
+def get_record_audit_history(table_name, record_id):
+    """Get complete audit history for a specific record."""
+    try:
+        from utils.audit_service import AuditService
+
+        if not AuditService.is_audit_enabled():
+            return jsonify({
+                'enabled': False,
+                'message': 'Audit logging requires PostgreSQL database',
+                'history': []
+            })
+
+        history = AuditService.get_record_history(table_name, record_id)
+
+        return jsonify({
+            'enabled': True,
+            'table_name': table_name,
+            'record_id': record_id,
+            'history': history,
+            'count': len(history)
+        })
+    except Exception as e:
+        print(f"Error getting record history: {e}")
+        return jsonify({'error': 'Failed to get record history'}), 500
+
+@app.route('/api/audit/user/<string:user_email>', methods=['GET'])
+@login_required
+def get_user_audit_activity(user_email):
+    """Get audit log activity for a specific user."""
+    try:
+        from utils.audit_service import AuditService
+
+        if not AuditService.is_audit_enabled():
+            return jsonify({
+                'enabled': False,
+                'message': 'Audit logging requires PostgreSQL database',
+                'activity': []
+            })
+
+        # Get query parameters
+        limit = int(request.args.get('limit', 100))
+        days = request.args.get('days')
+        days = int(days) if days else None
+
+        activity = AuditService.get_user_activity(
+            user_email=user_email,
+            limit=limit,
+            days=days
+        )
+
+        return jsonify({
+            'enabled': True,
+            'user_email': user_email,
+            'activity': activity,
+            'count': len(activity)
+        })
+    except Exception as e:
+        print(f"Error getting user activity: {e}")
+        return jsonify({'error': 'Failed to get user activity'}), 500
+
+@app.route('/api/audit/stats', methods=['GET'])
+@login_required
+def get_audit_statistics():
+    """Get audit log statistics."""
+    try:
+        from utils.audit_service import AuditService
+
+        if not AuditService.is_audit_enabled():
+            return jsonify({
+                'enabled': False,
+                'message': 'Audit logging requires PostgreSQL database'
+            })
+
+        stats = AuditService.get_statistics()
+        return jsonify(stats)
+    except Exception as e:
+        print(f"Error getting audit statistics: {e}")
+        return jsonify({'error': 'Failed to get audit statistics'}), 500
+
 # Catch-all route to serve React SPA
 # NOTE: These routes do NOT have @login_required because they serve the frontend.
 # The frontend handles authentication checks and shows the login page.
@@ -2438,18 +2568,19 @@ if __name__ == '__main__':
         
         # Test data handler initialization
         print("📊 Initializing data handler...", flush=True)
-        test_chores = data_handler.get_chores()
-        test_roommates = data_handler.get_roommates()
-        print(f"✅ Data loaded: {len(test_chores)} chores, {len(test_roommates)} roommates", flush=True)
-        
-        # Initialize scheduler for automatic cycle resets
-        print("⏰ Initializing automatic scheduler...", flush=True)
-        scheduler_service.init_scheduler()
-        scheduler_status = scheduler_service.get_scheduler_status()
-        print(f"✅ Scheduler initialized: {scheduler_status.get('status', 'unknown')}", flush=True)
-        if scheduler_status.get('jobs'):
-            for job in scheduler_status['jobs']:
-                print(f"   📅 Scheduled: {job['name']} - Next run: {job['next_run_time']}", flush=True)
+        with app.app_context():
+            test_chores = data_handler.get_chores()
+            test_roommates = data_handler.get_roommates()
+            print(f"✅ Data loaded: {len(test_chores)} chores, {len(test_roommates)} roommates", flush=True)
+
+            # Initialize scheduler for automatic cycle resets
+            print("⏰ Initializing automatic scheduler...", flush=True)
+            scheduler_service.init_scheduler()
+            scheduler_status = scheduler_service.get_scheduler_status()
+            print(f"✅ Scheduler initialized: {scheduler_status.get('status', 'unknown')}", flush=True)
+            if scheduler_status.get('jobs'):
+                for job in scheduler_status['jobs']:
+                    print(f"   📅 Scheduled: {job['name']} - Next run: {job['next_run_time']}", flush=True)
         
         # Start Flask app
         print("🚀 Starting Flask server...", flush=True)

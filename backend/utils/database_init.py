@@ -6,6 +6,7 @@ Handles table creation, initial setup, and database health checks.
 import logging
 from typing import Dict, Any, Optional
 from flask import Flask
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError, OperationalError
 from .database_config import db, database_config
 from .database_models import (
@@ -87,7 +88,7 @@ class DatabaseInitializer:
         """
         try:
             # Try to query the application state table
-            result = db.session.execute("SELECT 1").scalar()
+            result = db.session.execute(text("SELECT 1")).scalar()
             return result == 1
         except Exception as e:
             self.logger.error(f"Database connectivity check failed: {e}")
@@ -144,7 +145,7 @@ class DatabaseInitializer:
             
             for table_name in required_tables:
                 result = db.session.execute(
-                    f"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{table_name}')"
+                    text(f"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{table_name}')")
                 ).scalar()
                 if not result:
                     self.logger.warning(f"Table {table_name} does not exist")
