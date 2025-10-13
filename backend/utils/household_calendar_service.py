@@ -297,17 +297,17 @@ class HouseholdCalendarService:
         return results
     
     def broadcast_blocking_event_to_household(
-        self, 
+        self,
         blocking_data: Dict,
         exclude_google_ids: Optional[List[str]] = None
     ) -> Dict:
         """
-        Create blocking events (like laundry time slots) on all roommates' calendars.
-        
+        Create blocking events (like blocked time slots) on all roommates' calendars.
+
         Args:
             blocking_data: Event details for the blocking event
             exclude_google_ids: List of Google IDs to exclude from the broadcast
-        
+
         Returns:
             Dict with success/failure status and details for each roommate
         """
@@ -329,15 +329,15 @@ class HouseholdCalendarService:
         
         # Create blocking event data
         blocking_event = {
-            "title": f"🧺 {blocking_data.get('title', 'Laundry Time')}",
+            "title": f"🚫 {blocking_data.get('title', 'Blocked Time')}",
             "description": (
                 f"{blocking_data.get('description', '')}\n\n"
-                f"🚫 Laundry room occupied\n"
+                f"🚫 Time blocked by household\n"
                 f"📱 RoomieRoster household blocking"
             ),
             "start_time": blocking_data.get('start_time'),
             "end_time": blocking_data.get('end_time'),
-            "location": blocking_data.get('location', 'Laundry Room')
+            "location": blocking_data.get('location', '')
         }
         
         # Use the broadcast function but customize for blocking events

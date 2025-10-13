@@ -325,7 +325,6 @@ class CalendarService:
                     "enabled": False,
                     "default_calendar_id": None,
                     "reminder_settings": {
-                        "laundry_reminders": True,
                         "chore_reminders": False,
                         "reminder_minutes": [30, 10]
                     }
@@ -342,45 +341,6 @@ class CalendarService:
             return {"message": "Calendar configuration saved successfully"}
         except Exception as e:
             raise Exception(f"Failed to save calendar config: {str(e)}")
-    
-    def create_laundry_reminder(self, laundry_slot: Dict) -> Optional[Dict]:
-        """Create a calendar event for a laundry slot."""
-        config = self.get_calendar_config()
-        
-        if not config.get("enabled") or not config.get("reminder_settings", {}).get("laundry_reminders"):
-            return None
-        
-        calendar_id = config.get("default_calendar_id")
-        if not calendar_id:
-            return None
-        
-        try:
-            # Parse the time slot
-            date = laundry_slot['date']
-            time_range = laundry_slot['time_slot']
-            start_time, end_time = time_range.split('-')
-            
-            # Create datetime objects
-            start_datetime = f"{date}T{start_time}:00"
-            end_datetime = f"{date}T{end_time}:00"
-            
-            event_data = {
-                'title': f"🧺 Laundry - {laundry_slot['load_type'].title()}",
-                'description': f"Laundry scheduled for {laundry_slot['roommate_name']}\n" +
-                              f"Load type: {laundry_slot['load_type']}\n" +
-                              f"Machine: {laundry_slot['machine_type']}\n" +
-                              f"Estimated loads: {laundry_slot['estimated_loads']}\n" +
-                              (f"Notes: {laundry_slot['notes']}" if laundry_slot.get('notes') else ""),
-                'start_time': start_datetime,
-                'end_time': end_datetime,
-                'location': 'Laundry Room'
-            }
-            
-            result = self.create_event(calendar_id, event_data)
-            return result
-        except Exception as e:
-            print(f"Failed to create laundry reminder: {str(e)}")
-            return None
     
     def get_status(self) -> Dict:
         """Get calendar service status."""

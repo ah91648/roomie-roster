@@ -284,6 +284,7 @@ def debug_oauth_config():
 
 # Chores endpoints
 @app.route('/api/chores', methods=['GET'])
+@login_required
 def get_chores():
     """Get all chores."""
     try:
@@ -294,6 +295,7 @@ def get_chores():
         return jsonify({'error': 'Failed to get chores'}), 500
 
 @app.route('/api/chores', methods=['POST'])
+@login_required
 @rate_limit('api')
 @csrf_protected_enhanced
 def add_chore():
@@ -335,6 +337,7 @@ def add_chore():
         return jsonify({'error': 'Failed to add chore'}), 500
 
 @app.route('/api/chores/<int:chore_id>', methods=['PUT'])
+@login_required
 @rate_limit('api')
 @csrf_protected_enhanced
 def update_chore(chore_id):
@@ -377,6 +380,7 @@ def update_chore(chore_id):
         return jsonify({'error': 'Failed to update chore'}), 500
 
 @app.route('/api/chores/<int:chore_id>', methods=['DELETE'])
+@login_required
 @rate_limit('api')
 @csrf_protected_enhanced
 def delete_chore(chore_id):
@@ -415,6 +419,7 @@ def delete_chore(chore_id):
 
 # Sub-chore endpoints
 @app.route('/api/chores/<int:chore_id>/sub-chores', methods=['GET'])
+@login_required
 def get_sub_chores(chore_id):
     """Get all sub-chores for a specific chore."""
     try:
@@ -435,6 +440,7 @@ def get_sub_chores(chore_id):
         return jsonify({'error': 'Failed to get sub-chores'}), 500
 
 @app.route('/api/chores/<int:chore_id>/sub-chores', methods=['POST'])
+@login_required
 def add_sub_chore(chore_id):
     """Add a new sub-chore to a chore."""
     try:
@@ -457,6 +463,7 @@ def add_sub_chore(chore_id):
         return jsonify({'error': 'Failed to add sub-chore'}), 500
 
 @app.route('/api/chores/<int:chore_id>/sub-chores/<int:sub_chore_id>', methods=['PUT'])
+@login_required
 def update_sub_chore(chore_id, sub_chore_id):
     """Update a sub-chore's name."""
     try:
@@ -479,6 +486,7 @@ def update_sub_chore(chore_id, sub_chore_id):
         return jsonify({'error': 'Failed to update sub-chore'}), 500
 
 @app.route('/api/chores/<int:chore_id>/sub-chores/<int:sub_chore_id>', methods=['DELETE'])
+@login_required
 def delete_sub_chore(chore_id, sub_chore_id):
     """Delete a sub-chore from a chore."""
     try:
@@ -492,6 +500,7 @@ def delete_sub_chore(chore_id, sub_chore_id):
         return jsonify({'error': 'Failed to delete sub-chore'}), 500
 
 @app.route('/api/chores/<int:chore_id>/sub-chores/<int:sub_chore_id>/toggle', methods=['POST'])
+@login_required
 def toggle_sub_chore_completion(chore_id, sub_chore_id):
     """Toggle the completion status of a sub-chore in an assignment."""
     try:
@@ -511,6 +520,7 @@ def toggle_sub_chore_completion(chore_id, sub_chore_id):
         return jsonify({'error': 'Failed to toggle sub-chore completion'}), 500
 
 @app.route('/api/chores/<int:chore_id>/progress', methods=['GET'])
+@login_required
 def get_sub_chore_progress(chore_id):
     """Get the progress of sub-chores for a specific chore assignment."""
     try:
@@ -527,6 +537,7 @@ def get_sub_chore_progress(chore_id):
 
 # Shopping list endpoints
 @app.route('/api/shopping-list', methods=['GET'])
+@login_required
 def get_shopping_list():
     """Get all shopping list items or filter by status."""
     try:
@@ -546,6 +557,7 @@ def get_shopping_list():
         return jsonify({'error': 'Failed to get shopping list'}), 500
 
 @app.route('/api/shopping-list', methods=['POST'])
+@login_required
 def add_shopping_item():
     """Add a new item to the shopping list."""
     try:
@@ -585,6 +597,7 @@ def add_shopping_item():
         return jsonify({'error': 'Failed to add shopping item'}), 500
 
 @app.route('/api/shopping-list/<int:item_id>', methods=['PUT'])
+@login_required
 def update_shopping_item(item_id):
     """Update an existing shopping list item."""
     try:
@@ -624,6 +637,7 @@ def update_shopping_item(item_id):
         return jsonify({'error': 'Failed to update shopping item'}), 500
 
 @app.route('/api/shopping-list/<int:item_id>', methods=['DELETE'])
+@login_required
 def delete_shopping_item(item_id):
     """Delete a shopping list item."""
     try:
@@ -644,6 +658,7 @@ def delete_shopping_item(item_id):
         return jsonify({'error': 'Failed to delete shopping item'}), 500
 
 @app.route('/api/shopping-list/<int:item_id>/purchase', methods=['POST'])
+@login_required
 def mark_item_purchased(item_id):
     """Mark a shopping list item as purchased."""
     try:
@@ -678,6 +693,7 @@ def mark_item_purchased(item_id):
         return jsonify({'error': 'Failed to mark item as purchased'}), 500
 
 @app.route('/api/shopping-list/history', methods=['GET'])
+@login_required
 def get_purchase_history():
     """Get purchase history for the last N days."""
     try:
@@ -699,6 +715,7 @@ def get_purchase_history():
         return jsonify({'error': 'Failed to get purchase history'}), 500
 
 @app.route('/api/shopping-list/metadata', methods=['GET'])
+@login_required
 def get_shopping_list_metadata():
     """Get shopping list metadata including last modification time."""
     try:
@@ -709,6 +726,7 @@ def get_shopping_list_metadata():
         return jsonify({'error': 'Failed to get shopping list metadata'}), 500
 
 @app.route('/api/shopping-list/clear-all-history', methods=['POST'])
+@login_required
 def clear_all_purchase_history():
     """Clear all purchase history - reset all purchased items to active status."""
     try:
@@ -722,6 +740,7 @@ def clear_all_purchase_history():
         return jsonify({'error': 'Failed to clear purchase history'}), 500
 
 @app.route('/api/shopping-list/clear-history-from-date', methods=['POST'])
+@login_required
 def clear_purchase_history_from_date():
     """Clear purchase history from a specific date onward."""
     try:
@@ -750,6 +769,7 @@ def clear_purchase_history_from_date():
 
 # Request endpoints
 @app.route('/api/requests', methods=['GET'])
+@login_required
 def get_requests():
     """Get all requests with optional status filtering."""
     try:
@@ -769,6 +789,7 @@ def get_requests():
         return jsonify({'error': 'Failed to get requests'}), 500
 
 @app.route('/api/requests', methods=['POST'])
+@login_required
 def add_request():
     """Add a new request."""
     try:
@@ -807,6 +828,7 @@ def add_request():
         return jsonify({'error': 'Failed to add request'}), 500
 
 @app.route('/api/requests/<int:request_id>', methods=['PUT'])
+@login_required
 def update_request(request_id):
     """Update an existing request."""
     try:
@@ -843,6 +865,7 @@ def update_request(request_id):
         return jsonify({'error': 'Failed to update request'}), 500
 
 @app.route('/api/requests/<int:request_id>', methods=['DELETE'])
+@login_required
 def delete_request(request_id):
     """Delete a request."""
     try:
@@ -856,6 +879,7 @@ def delete_request(request_id):
         return jsonify({'error': 'Failed to delete request'}), 500
 
 @app.route('/api/requests/<int:request_id>/approve', methods=['POST'])
+@login_required
 def approve_request(request_id):
     """Approve or decline a request."""
     try:
@@ -880,6 +904,7 @@ def approve_request(request_id):
         return jsonify({'error': 'Failed to process approval'}), 500
 
 @app.route('/api/requests/pending/<int:user_id>', methods=['GET'])
+@login_required
 def get_pending_requests_for_user(user_id):
     """Get pending requests that a specific user hasn't voted on yet."""
     try:
@@ -891,6 +916,7 @@ def get_pending_requests_for_user(user_id):
         return jsonify({'error': 'Failed to get pending requests'}), 500
 
 @app.route('/api/requests/metadata', methods=['GET'])
+@login_required
 def get_requests_metadata():
     """Get request metadata including last modification time."""
     try:
@@ -902,6 +928,7 @@ def get_requests_metadata():
 
 # Roommates endpoints
 @app.route('/api/roommates', methods=['GET'])
+@login_required
 def get_roommates():
     """Get all roommates."""
     try:
@@ -912,6 +939,7 @@ def get_roommates():
         return jsonify({'error': 'Failed to get roommates'}), 500
 
 @app.route('/api/roommates', methods=['POST'])
+@login_required
 def add_roommate():
     """Add a new roommate."""
     try:
@@ -937,6 +965,7 @@ def add_roommate():
         return jsonify({'error': 'Failed to add roommate'}), 500
 
 @app.route('/api/roommates/<int:roommate_id>', methods=['PUT'])
+@login_required
 def update_roommate(roommate_id):
     """Update an existing roommate."""
     try:
@@ -969,6 +998,7 @@ def update_roommate(roommate_id):
         return jsonify({'error': 'Failed to update roommate'}), 500
 
 @app.route('/api/roommates/<int:roommate_id>', methods=['DELETE'])
+@login_required
 def delete_roommate(roommate_id):
     """Delete a roommate."""
     try:
@@ -990,6 +1020,7 @@ def delete_roommate(roommate_id):
 
 # Assignment endpoints
 @app.route('/api/assign-chores', methods=['POST'])
+@login_required
 def assign_chores():
     """Trigger chore assignment logic."""
     try:
@@ -1005,6 +1036,7 @@ def assign_chores():
         return jsonify({'error': 'Failed to assign chores'}), 500
 
 @app.route('/api/current-assignments', methods=['GET'])
+@login_required
 def get_current_assignments():
     """Get current chore assignments."""
     try:
@@ -1022,6 +1054,7 @@ def get_current_assignments():
 
 # State management endpoints
 @app.route('/api/state', methods=['GET'])
+@login_required
 def get_state():
     """Get application state."""
     try:
@@ -1032,6 +1065,7 @@ def get_state():
         return jsonify({'error': 'Failed to get state'}), 500
 
 @app.route('/api/reset-cycle', methods=['POST'])
+@login_required
 def reset_cycle():
     """Manually reset the assignment cycle."""
     try:
@@ -1046,6 +1080,7 @@ def reset_cycle():
         return jsonify({'error': 'Failed to reset cycle'}), 500
 
 @app.route('/api/scheduler/status', methods=['GET'])
+@login_required
 def get_scheduler_status():
     """Get the current status of the automatic scheduler."""
     try:
@@ -1057,6 +1092,7 @@ def get_scheduler_status():
 
 # Laundry scheduling endpoints
 @app.route('/api/laundry-slots', methods=['GET'])
+@login_required
 def get_laundry_slots():
     """Get all laundry slots."""
     try:
@@ -1080,6 +1116,7 @@ def get_laundry_slots():
         return jsonify({'error': 'Failed to get laundry slots'}), 500
 
 @app.route('/api/laundry-slots', methods=['POST'])
+@login_required
 def add_laundry_slot():
     """Add a new laundry slot."""
     try:
@@ -1136,42 +1173,7 @@ def add_laundry_slot():
         }
         
         data_handler.add_laundry_slot(new_slot)
-        
-        # Try to create household calendar blocking events
-        calendar_success = False
-        if household_calendar_service:
-            try:
-                blocking_result = household_calendar_service.create_laundry_blocking_notification(new_slot)
-                if blocking_result.get("success", False):
-                    calendar_success = True
-                    new_slot['household_calendar_events_created'] = blocking_result.get('successful_blocks', 0)
-                    new_slot['household_calendar_recipients'] = list(blocking_result.get('recipient_details', {}).keys())
-                    print(f"✓ Created laundry blocking events for {new_slot['household_calendar_events_created']} roommates")
-                else:
-                    error_msg = blocking_result.get("error", "Unknown error")
-                    print(f"✗ Failed to create household calendar blocking: {error_msg}")
-            except Exception as household_cal_error:
-                print(f"✗ Exception creating household calendar blocking: {household_cal_error}")
-        
-        # Fallback to individual calendar reminder if configured
-        if not calendar_success:
-            try:
-                calendar_event = calendar_service.create_laundry_reminder(new_slot)
-                if calendar_event:
-                    new_slot['calendar_event_id'] = calendar_event['id']
-                    new_slot['calendar_link'] = calendar_event['htmlLink']
-                    print(f"✓ Created individual calendar reminder as fallback")
-            except Exception as cal_error:
-                print(f"✗ Failed to create individual calendar reminder: {cal_error}")
-        
-        # Update the slot with calendar info if any calendar events were created
-        if calendar_success or new_slot.get('calendar_event_id'):
-            try:
-                data_handler.update_laundry_slot(new_slot['id'], new_slot)
-            except Exception as update_error:
-                print(f"✗ Failed to update laundry slot with calendar info: {update_error}")
-                # Don't fail the laundry slot creation if update fails
-        
+
         return jsonify(new_slot), 201
         
     except Exception as e:
@@ -1179,6 +1181,7 @@ def add_laundry_slot():
         return jsonify({'error': 'Failed to add laundry slot'}), 500
 
 @app.route('/api/laundry-slots/<int:slot_id>', methods=['PUT'])
+@login_required
 def update_laundry_slot(slot_id):
     """Update an existing laundry slot."""
     try:
@@ -1230,23 +1233,13 @@ def update_laundry_slot(slot_id):
         return jsonify({'error': 'Failed to update laundry slot'}), 500
 
 @app.route('/api/laundry-slots/<int:slot_id>', methods=['DELETE'])
+@login_required
 def delete_laundry_slot(slot_id):
-    """Delete a laundry slot and associated calendar events."""
+    """Delete a laundry slot."""
     try:
-        # Delete household calendar events first
-        if household_calendar_service:
-            try:
-                deletion_result = household_calendar_service.delete_laundry_events(slot_id)
-                if deletion_result.get("success", False):
-                    print(f"✓ Deleted {deletion_result.get('successful_deletions', 0)} household calendar events for laundry slot {slot_id}")
-                else:
-                    print(f"✗ Failed to delete household calendar events: {deletion_result.get('error', 'Unknown error')}")
-            except Exception as cal_error:
-                print(f"✗ Exception deleting household calendar events: {cal_error}")
-        
         # Delete the laundry slot
         data_handler.delete_laundry_slot(slot_id)
-        return jsonify({'message': 'Laundry slot and calendar events deleted successfully'}), 200
+        return jsonify({'message': 'Laundry slot deleted successfully'}), 200
         
     except ValueError as e:
         return jsonify({'error': str(e)}), 404
@@ -1255,6 +1248,7 @@ def delete_laundry_slot(slot_id):
         return jsonify({'error': 'Failed to delete laundry slot'}), 500
 
 @app.route('/api/laundry-slots/<int:slot_id>/complete', methods=['POST'])
+@login_required
 def complete_laundry_slot(slot_id):
     """Mark a laundry slot as completed."""
     try:
@@ -1266,20 +1260,7 @@ def complete_laundry_slot(slot_id):
         updated_slot = data_handler.mark_laundry_slot_completed(
             slot_id, actual_loads, completion_notes
         )
-        
-        # Optionally clean up calendar events when laundry is completed
-        # This can be controlled by user preferences in the future
-        if household_calendar_service and data.get('remove_calendar_events', False):
-            try:
-                deletion_result = household_calendar_service.delete_laundry_events(slot_id)
-                if deletion_result.get("success", False):
-                    print(f"✓ Cleaned up {deletion_result.get('successful_deletions', 0)} calendar events for completed laundry slot {slot_id}")
-                    updated_slot['calendar_events_cleaned'] = True
-                else:
-                    print(f"✗ Failed to clean up calendar events: {deletion_result.get('error', 'Unknown error')}")
-            except Exception as cal_error:
-                print(f"✗ Exception cleaning up calendar events: {cal_error}")
-        
+
         return jsonify(updated_slot)
         
     except ValueError as e:
@@ -1293,6 +1274,7 @@ def complete_laundry_slot(slot_id):
 # =============================================================================
 
 @app.route('/api/household-calendar/status', methods=['GET'])
+@login_required
 @auth_rate_limited('calendar_status')
 def get_household_calendar_status():
     """Get comprehensive household calendar status."""
@@ -1377,6 +1359,7 @@ def update_user_calendar_preferences():
         return jsonify({'error': 'Failed to update calendar preferences'}), 500
 
 @app.route('/api/household-calendar/household-preferences', methods=['GET'])
+@login_required
 @auth_rate_limited('household_prefs')
 def get_household_calendar_preferences():
     """Get household-wide calendar preferences."""
@@ -1392,6 +1375,7 @@ def get_household_calendar_preferences():
         return jsonify({'error': 'Failed to get household preferences'}), 500
 
 @app.route('/api/household-calendar/household-preferences', methods=['POST'])
+@login_required
 @roommate_required
 @csrf_protected_enhanced
 def update_household_calendar_preferences():
@@ -1416,6 +1400,7 @@ def update_household_calendar_preferences():
         return jsonify({'error': 'Failed to update household preferences'}), 500
 
 @app.route('/api/household-calendar/test-access', methods=['POST'])
+@login_required
 @auth_rate_limited('calendar_test')
 def test_household_calendar_access():
     """Test calendar access for all authenticated roommates."""
@@ -1431,6 +1416,7 @@ def test_household_calendar_access():
         return jsonify({'error': 'Failed to test calendar access'}), 500
 
 @app.route('/api/household-calendar/cleanup-events', methods=['POST'])
+@login_required
 @roommate_required
 @csrf_protected_enhanced
 def cleanup_orphaned_calendar_events():
@@ -1474,6 +1460,7 @@ def link_roommate_to_google_account():
         return jsonify({'error': 'Failed to link accounts'}), 500
 
 @app.route('/api/household-calendar/unlink-roommate/<int:roommate_id>', methods=['POST'])
+@login_required
 @roommate_required
 @csrf_protected_enhanced
 def unlink_roommate_from_google_account(roommate_id):
@@ -1565,6 +1552,7 @@ def manual_sync_user_chores():
         return jsonify({'error': 'Failed to sync chores'}), 500
 
 @app.route('/api/laundry-slots/check-conflicts', methods=['POST'])
+@login_required
 def check_laundry_conflicts():
     """Check for conflicts when scheduling a laundry slot."""
     try:
@@ -1592,6 +1580,7 @@ def check_laundry_conflicts():
         return jsonify({'error': 'Failed to check conflicts'}), 500
 
 @app.route('/api/laundry-slots/metadata', methods=['GET'])
+@login_required
 def get_laundry_metadata():
     """Get metadata about laundry slots including last modification time."""
     try:
@@ -1603,6 +1592,7 @@ def get_laundry_metadata():
 
 # Blocked Time Slots endpoints
 @app.route('/api/blocked-time-slots', methods=['GET'])
+@login_required
 def get_blocked_time_slots():
     """Get all blocked time slots."""
     try:
@@ -1619,6 +1609,7 @@ def get_blocked_time_slots():
         return jsonify({'error': 'Failed to get blocked time slots'}), 500
 
 @app.route('/api/blocked-time-slots', methods=['POST'])
+@login_required
 def add_blocked_time_slot():
     """Add a new blocked time slot."""
     try:
@@ -1672,6 +1663,7 @@ def add_blocked_time_slot():
         return jsonify({'error': 'Failed to add blocked time slot'}), 500
 
 @app.route('/api/blocked-time-slots/<int:slot_id>', methods=['PUT'])
+@login_required
 def update_blocked_time_slot(slot_id):
     """Update an existing blocked time slot."""
     try:
@@ -1730,6 +1722,7 @@ def update_blocked_time_slot(slot_id):
         return jsonify({'error': 'Failed to update blocked time slot'}), 500
 
 @app.route('/api/blocked-time-slots/<int:slot_id>', methods=['DELETE'])
+@login_required
 def delete_blocked_time_slot(slot_id):
     """Delete a blocked time slot."""
     try:
@@ -1762,6 +1755,7 @@ def delete_blocked_time_slot(slot_id):
         return jsonify({'error': 'Failed to delete blocked time slot'}), 500
 
 @app.route('/api/blocked-time-slots/check-conflicts', methods=['POST'])
+@login_required
 def check_blocked_time_conflicts():
     """Check if a time slot conflicts with blocked slots."""
     try:
@@ -1786,6 +1780,7 @@ def check_blocked_time_conflicts():
 
 # Google Calendar integration endpoints
 @app.route('/api/calendar/status', methods=['GET'])
+@login_required
 def get_calendar_status():
     """Get calendar integration status."""
     try:
@@ -1796,6 +1791,7 @@ def get_calendar_status():
         return jsonify({'error': 'Failed to get calendar status'}), 500
 
 @app.route('/api/calendar/setup-credentials', methods=['POST'])
+@login_required
 def setup_calendar_credentials():
     """Upload Google Calendar API credentials."""
     try:
@@ -1812,6 +1808,7 @@ def setup_calendar_credentials():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/calendar/oauth-url', methods=['GET'])
+@login_required
 def get_oauth_url():
     """Get OAuth authorization URL."""
     try:
@@ -1822,6 +1819,7 @@ def get_oauth_url():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/calendar/callback', methods=['GET'])
+@login_required
 def calendar_oauth_callback():
     """Handle OAuth callback from Google."""
     try:
@@ -1836,6 +1834,7 @@ def calendar_oauth_callback():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/calendar/calendars', methods=['GET'])
+@login_required
 def get_calendar_list():
     """Get list of user's calendars."""
     try:
@@ -1846,6 +1845,7 @@ def get_calendar_list():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/calendar/config', methods=['GET'])
+@login_required
 def get_calendar_config():
     """Get calendar integration configuration."""
     try:
@@ -1856,6 +1856,7 @@ def get_calendar_config():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/calendar/config', methods=['POST'])
+@login_required
 def save_calendar_config():
     """Save calendar integration configuration."""
     try:
@@ -1867,6 +1868,7 @@ def save_calendar_config():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/calendar/create-event', methods=['POST'])
+@login_required
 def create_calendar_event():
     """Create a calendar event."""
     try:
@@ -1894,6 +1896,7 @@ def create_calendar_event():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/calendar/delete-event', methods=['DELETE'])
+@login_required
 def delete_calendar_event():
     """Delete a calendar event."""
     try:
@@ -2167,6 +2170,7 @@ def revoke_user_access():
         return jsonify({'error': 'Failed to revoke access'}), 500
 
 @app.route('/api/auth/setup-credentials', methods=['POST'])
+@login_required
 def setup_auth_credentials():
     """Setup Google Authentication credentials."""
     try:
@@ -2285,6 +2289,8 @@ def get_user_calendar_sync_status():
         return jsonify({'error': 'Failed to get sync status'}), 500
 
 # Catch-all route to serve React SPA
+# NOTE: These routes do NOT have @login_required because they serve the frontend.
+# The frontend handles authentication checks and shows the login page.
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve(path):

@@ -10,7 +10,7 @@ RoomieRoster is a full-stack household chore management application that fairly 
 - **Chore Management**: Create and assign household chores with sub-task tracking
 - **Shopping List**: Collaborative shopping with price tracking and purchase history
 - **Request Management**: Roommate approval system for purchasing requests with auto-approval thresholds
-- **Laundry Scheduling**: Time slot management for shared laundry facilities with load tracking
+- **Laundry Scheduling**: Time slot management for shared laundry facilities with load tracking (app-only, no calendar sync)
 - **Blocked Time Slots**: Calendar integration for blocked time periods that prevent scheduling conflicts
 - **Smart Assignment**: Fair distribution using rotation and weighted algorithms
 - **Real-time Updates**: Live collaboration with polling-based synchronization
@@ -399,17 +399,19 @@ Purchase requests require roommate approval before being added to shopping list:
 
 ### Laundry Scheduling System
 Manages shared laundry facility access with time slot reservations:
+- **App-Only Feature**: Laundry scheduling is managed entirely within RoomieRoster and does not sync to Google Calendar
 - **Time Slot Management**: 2-hour booking windows with machine type selection
 - **Load Type Tracking**: Categorizes laundry by type (lights, darks, delicates, etc.)
 - **Capacity Planning**: Tracks estimated vs actual loads for better scheduling
 - **Status Management**: Handles scheduled, in-progress, and completed laundry sessions
 - **Conflict Prevention**: Prevents double-booking of time slots and machines
+- **Shared Visibility**: All roommates can view the complete laundry schedule in the app
 
 ### Blocked Time Slots System
-Manages time periods that are unavailable for laundry scheduling:
+Manages time periods that are unavailable for scheduling:
 - **Time Blocking**: Mark specific time slots as unavailable with custom reasons
 - **Calendar Integration**: Optionally sync blocked slots to all users' Google Calendars
-- **Conflict Detection**: Prevents scheduling laundry during blocked periods
+- **Conflict Detection**: Prevents scheduling during blocked periods
 - **Flexible Management**: Add, edit, delete blocked slots with date-specific filtering
 - **Automatic Validation**: Checks for conflicts when creating or updating time blocks
 

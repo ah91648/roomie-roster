@@ -20,12 +20,14 @@ function MainApp() {
   const [activeTab, setActiveTab] = useState('assignments');
   const [appStatus, setAppStatus] = useState('loading');
   const [error, setError] = useState(null);
-  const { 
-    isAuthenticated, 
-    user, 
-    needsRoommateLink, 
+  const {
+    isAuthenticated,
+    user,
+    needsRoommateLink,
     isLoading: authLoading,
-    isConfigured 
+    isInitialized,
+    isConfigured,
+    loginWithGoogle
   } = useAuth();
 
   // Handle keyboard navigation for tabs
@@ -87,7 +89,8 @@ function MainApp() {
     }
   };
 
-  if (appStatus === 'loading') {
+  // Show loading state while checking app health or auth status
+  if (appStatus === 'loading' || authLoading || !isInitialized) {
     return (
       <div className="app-loading">
         <div className="loading-content">
@@ -114,6 +117,50 @@ function MainApp() {
               <code>cd backend && PORT=5002 python app.py</code>
             </div>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // AUTHENTICATION GATE: If not authenticated, show login page ONLY
+  if (!isAuthenticated && isInitialized) {
+    return (
+      <div className="app-login-required">
+        <div className="login-content">
+          <div className="login-header">
+            <h1 className="app-title">
+              🏠 <span>RoomieRoster</span>
+            </h1>
+            <p className="app-subtitle">Household Chore Management Made Easy</p>
+          </div>
+
+          <div className="login-message">
+            <div className="lock-icon">🔒</div>
+            <h2>Authentication Required</h2>
+            <p>
+              RoomieRoster is a private household management app.
+              You must be logged in with a registered Google account to access this application.
+            </p>
+          </div>
+
+          {isConfigured ? (
+            <div className="login-actions">
+              <GoogleLoginButton />
+              <p className="login-help">
+                Only registered household members can access this app.
+              </p>
+            </div>
+          ) : (
+            <div className="login-actions">
+              <div className="auth-setup-notice">
+                <h3>Setup Required</h3>
+                <p>Google Authentication needs to be configured by an administrator.</p>
+                <p className="help-text">
+                  Please contact your household administrator to complete the authentication setup.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );

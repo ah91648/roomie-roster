@@ -269,8 +269,8 @@ const LaundryScheduler = () => {
       <div className="header">
         <h2>🧺 Laundry Schedule</h2>
         <div className="header-actions">
-          <button 
-            onClick={() => setShowAddForm(!showAddForm)} 
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
             className="button primary"
           >
             {showAddForm ? 'Cancel' : 'Schedule Laundry'}
@@ -279,6 +279,23 @@ const LaundryScheduler = () => {
             Refresh
           </button>
         </div>
+      </div>
+
+      {/* Info Banner */}
+      <div className="info-banner" style={{
+        backgroundColor: '#e3f2fd',
+        border: '1px solid #2196f3',
+        borderRadius: '4px',
+        padding: '12px 16px',
+        margin: '16px 0',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px'
+      }}>
+        <span style={{ fontSize: '1.2rem' }}>ℹ️</span>
+        <span style={{ fontSize: '0.9rem', color: '#1976d2' }}>
+          <strong>App-Only Feature:</strong> Laundry scheduling is managed within RoomieRoster and does not sync to Google Calendar. All roommates can view the schedule here in the app.
+        </span>
       </div>
 
       {error && <div className="error">{error}</div>}
