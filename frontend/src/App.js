@@ -5,9 +5,6 @@ import AssignmentDisplay from './components/AssignmentDisplay';
 import ShoppingListManager from './components/ShoppingListManager';
 import RequestManager from './components/RequestManager';
 import LaundryScheduler from './components/LaundryScheduler';
-import CalendarSettings from './components/CalendarSettings';
-import UserCalendarSettings from './components/UserCalendarSettings';
-import AuthSetup from './components/AuthSetup';
 import GoogleLoginButton from './components/GoogleLoginButton';
 import UserProfile from './components/UserProfile';
 import RoommateSelector from './components/RoommateSelector';
@@ -60,9 +57,6 @@ function MainApp() {
     { id: 'laundry', label: 'Laundry', icon: '🧺' },
     { id: 'shopping', label: 'Shopping List', icon: '🛒' },
     { id: 'requests', label: 'Requests', icon: '🙋' },
-    { id: 'calendar', label: 'Calendar Settings', icon: '📅' },
-    { id: 'my-calendar', label: 'My Calendar', icon: '📱', authRequired: true },
-    { id: 'auth', label: 'Authentication', icon: '🔐' },
   ];
 
   const renderActiveComponent = () => {
@@ -77,12 +71,6 @@ function MainApp() {
         return <ShoppingListManager />;
       case 'requests':
         return <RequestManager />;
-      case 'calendar':
-        return <CalendarSettings />;
-      case 'my-calendar':
-        return <UserCalendarSettings />;
-      case 'auth':
-        return <AuthSetup />;
       case 'assignments':
       default:
         return <AssignmentDisplay />;
@@ -182,16 +170,7 @@ function MainApp() {
               <UserProfile compact={true} showRoommateInfo={true} showActions={true} />
             ) : isConfigured ? (
               <GoogleLoginButton />
-            ) : (
-              <div className="auth-setup-prompt">
-                <button 
-                  onClick={() => setActiveTab('auth')} 
-                  className="button secondary small"
-                >
-                  Setup Authentication
-                </button>
-              </div>
-            )}
+            ) : null}
           </div>
         </div>
       </header>
