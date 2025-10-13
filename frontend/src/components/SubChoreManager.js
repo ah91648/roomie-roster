@@ -146,6 +146,7 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
       }
       currentRequestRef.current = null;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Removed stableOnSubChoresChange dependency since it's now stable
 
   // Effect to load sub-chores when chore changes
@@ -159,6 +160,7 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
       setLoading(false);
       loadingStateRef.current = false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chore?.id]); // Removed loadSubChores dependency to prevent infinite re-renders
 
   // Cleanup on unmount
@@ -189,6 +191,7 @@ const SubChoreManager = ({ chore, onSubChoresChange }) => {
     if (chore?.id) {
       loadSubChores(chore.id, retryCount);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chore?.id, retryCount]); // Removed loadSubChores dependency
 
   const resetForm = () => {

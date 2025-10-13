@@ -1,0 +1,58 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Log files
+*.log
+app.log
+backend.log
+server.log
+local_app.log
+logs/*.log
+
+# Node modules and cache
+node_modules/
+frontend/node_modules/.cache/
+.cache/
+
+# Build outputs (keeping main build files for deployment)
+# Uncomment if build happens on server:
+# frontend/build/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Database (if using SQLite locally)
+*.db
+*.sqlite
+*.sqlite3

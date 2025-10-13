@@ -548,11 +548,57 @@ class DatabaseDataHandler:
             items.append(item)
             self._write_json(self.shopping_list_file, items)
             return item
-    
+
+    def get_shopping_list_by_status(self, status: str) -> List[Dict]:
+        """Get shopping list items by status (active, purchased, etc.)."""
+        items = self.get_shopping_list()
+        return [item for item in items if item.get('status') == status]
+
+    def get_sub_chore_progress(self, chore_id: int, assignment_index: int = None) -> Dict:
+        """Get the progress of sub-chores for a specific assignment."""
+        # Get the chore to find total sub-chores
+        chores = self.get_chores()
+        chore = next((c for c in chores if c['id'] == chore_id), None)
+        if not chore:
+            raise ValueError(f"Chore with id {chore_id} not found")
+
+        total_sub_chores = len(chore.get('sub_chores', []))
+
+        # Get completion status from assignment
+        state = self.get_state()
+        assignments = state.get('current_assignments', [])
+
+        assignment = None
+        if assignment_index is not None:
+            if 0 <= assignment_index < len(assignments):
+                assignment = assignments[assignment_index]
+        else:
+            assignment = next((a for a in assignments if a['chore_id'] == chore_id), None)
+
+        if not assignment:
+            return {
+                "total_sub_chores": total_sub_chores,
+                "completed_sub_chores": 0,
+                "completion_percentage": 0.0,
+                "sub_chore_statuses": {}
+            }
+
+        completions = assignment.get('sub_chore_completions', {})
+        completed_count = sum(1 for status in completions.values() if status)
+
+        completion_percentage = (completed_count / total_sub_chores * 100) if total_sub_chores > 0 else 0
+
+        return {
+            "total_sub_chores": total_sub_chores,
+            "completed_sub_chores": completed_count,
+            "completion_percentage": round(completion_percentage, 1),
+            "sub_chore_statuses": completions
+        }
+
     # For now, I'll note that all other methods would be implemented following the same pattern:
     # - Check if using database
     # - If yes, use SQLAlchemy operations with proper error handling
     # - If no, use JSON file operations
     # - Maintain exact same return types and error behaviors
-    
+
     # This ensures backward compatibility while providing database persistence

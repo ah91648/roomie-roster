@@ -44,6 +44,7 @@ npm start
 
 **Testing:**
 ```bash
+# E2E Tests (Playwright)
 cd tests/playwright
 npm install && npx playwright install
 npm test                    # Run all E2E tests
@@ -52,6 +53,19 @@ npm run test:debug         # Debug mode
 npm run test:report        # View test report
 npx playwright test mobile-navigation.spec.js  # Test mobile navigation specifically
 npx playwright test --project="Mobile Safari"  # Test specific mobile browser
+
+# Backend Unit Tests (pytest)
+cd backend
+pip install -r requirements.txt  # Install pytest and dependencies
+pytest tests/                    # Run all backend tests
+pytest tests/test_decorators.py -v  # Run decorator tests with verbose output
+pytest tests/test_data_handler_parity.py -v  # Run parity check tests
+pytest --cov=utils tests/        # Run tests with coverage report
+
+# TypeScript Type Checking
+cd frontend
+npm run type-check              # Check TypeScript types without building
+npx tsc --noEmit --watch        # Watch mode for continuous type checking
 ```
 
 **Production Build:**
@@ -214,7 +228,7 @@ The application follows a clear data flow pattern:
      - `laundry_slots.json`: Laundry scheduling with time slots, load types, and machine reservations
      - `blocked_time_slots.json`: Blocked time periods for preventing scheduling conflicts
 
-2. **Business Logic (`backend/utils/`)**: 
+2. **Business Logic (`backend/utils/`)**:
    - `DatabaseDataHandler`: Hybrid data management supporting both PostgreSQL and JSON files
    - `DataHandler`: Legacy JSON file operations (maintained for compatibility)
    - `DatabaseConfig`: Database connection and configuration management
@@ -224,9 +238,12 @@ The application follows a clear data flow pattern:
    - `SchedulerService`: Handles automatic weekly cycle resets using APScheduler
    - `AuthService`: Handles Google OAuth authentication and session management
    - `CalendarService`: Google Calendar API integration for chore sync
+   - `UserCalendarService`: Personal calendar configuration and sync functionality
+   - `HouseholdCalendarService`: Manages household-wide calendar functionality
+   - `CalendarPreferencesService`: Handles user calendar preferences and settings
+   - `CalendarNotificationService`: Manages calendar event notifications
    - `SecurityMiddleware`: CSRF protection, rate limiting, and request validation
    - `SessionManager`: User session and authentication state management
-   - `UserCalendarService`: Personal calendar configuration and sync functionality
 
 3. **API Layer (`backend/app.py`)**: RESTful endpoints with comprehensive error handling
 
@@ -302,9 +319,9 @@ Both backend and frontend implement comprehensive error handling:
 - Type safety: Consistent data structure validation throughout
 
 ### Testing Philosophy
-E2E tests cover complete user workflows rather than isolated units:
+E2E tests cover complete user workflows rather than isolated units (located in `tests/playwright/e2e/`):
 - `roommate-management.spec.js`: Full CRUD operations
-- `chore-management.spec.js`: Chore lifecycle and form validation  
+- `chore-management.spec.js`: Chore lifecycle and form validation
 - `assignment-workflow.spec.js`: End-to-end assignment generation and display
 - `authentication-flow.spec.js`: OAuth login and session management
 - `calendar-integration.spec.js`: Google Calendar sync functionality
@@ -329,7 +346,9 @@ Tests include setup/teardown for data consistency and handle async operations pr
 ### Port Configuration
 - Backend: Flask runs on port 5000 (launcher script may use 5001 if 5000 is occupied)
 - Frontend: React dev server on port 3000
-- **Important**: Frontend proxy in `package.json` currently points to port 5001 - update if needed for consistency
+- **Important**: Frontend proxy in `package.json` currently points to port 5001 by default
+  - The launcher script (`launch_app.py`) automatically updates the proxy when using a non-standard port
+  - If running servers manually on port 5000, update `package.json` proxy to `http://localhost:5000`
 - The launcher includes port conflict detection and automatic port selection
 - **Production**: Render automatically assigns port via `PORT` environment variable - do not set manually
 
@@ -337,12 +356,12 @@ Tests include setup/teardown for data consistency and handle async operations pr
 When debugging specific test scenarios:
 ```bash
 cd tests/playwright
-npx playwright test roommate-management.spec.js    # Run single test file
-npx playwright test --grep "add roommate"          # Run tests matching pattern
-npx playwright test --debug roommate-management    # Debug specific test file
-npx playwright test mobile-navigation.spec.js --headed  # Test mobile navigation with visible browser
-npx playwright test --project="chromium"           # Run tests on specific browser
-npx playwright test --project="Mobile Chrome"      # Test specific mobile configuration
+npx playwright test e2e/roommate-management.spec.js    # Run single test file
+npx playwright test --grep "add roommate"              # Run tests matching pattern
+npx playwright test --debug e2e/roommate-management    # Debug specific test file
+npx playwright test e2e/mobile-navigation.spec.js --headed  # Test mobile navigation with visible browser
+npx playwright test --project="chromium"               # Run tests on specific browser
+npx playwright test --project="Mobile Chrome"          # Test specific mobile configuration
 ```
 
 ### Data Persistence
@@ -544,6 +563,188 @@ The application now dynamically determines redirect URIs based on environment:
 - Security features include CSRF protection, rate limiting, and request validation
 - All endpoints include comprehensive error handling and validation
 
+## Code Quality and Testing Infrastructure
+
+RoomieRoster now includes comprehensive testing and type safety infrastructure to prevent regressions and improve code quality.
+
+### Backend Testing (pytest)
+
+**Test Infrastructure Location**: `backend/tests/`
+
+#### Method Parity Check System
+
+Ensures DatabaseDataHandler maintains API parity with DataHandler to prevent the 68% incompleteness issue that broke multiple features.
+
+**Run Parity Check**:
+```bash
+cd backend
+
+# As pytest test (fails on missing methods)
+pytest tests/test_data_handler_parity.py -v
+
+# As standalone script (generates report)
+python3 scripts/check_handler_parity.py --verbose
+
+# Generate markdown report
+python3 scripts/check_handler_parity.py --output docs/DATA_HANDLER_PARITY.md
+
+# Use in CI/CD (exits with error code on failure)
+python3 scripts/check_handler_parity.py --fail-on-missing
+```
+
+**What it checks**:
+- ✅ All DataHandler methods are implemented in DatabaseDataHandler
+- ✅ Method signatures match between both handlers
+- ✅ Generates comprehensive report showing missing methods by feature category
+- ✅ Identifies broken features (Requests, Laundry, Shopping, etc.)
+
+**Report Location**: `backend/docs/DATA_HANDLER_PARITY.md`
+
+#### Decorator Validation Tests
+
+Comprehensive test suite for security decorators to prevent regression of fixed bugs.
+
+**Run Decorator Tests**:
+```bash
+cd backend
+pytest tests/test_decorators.py -v
+```
+
+**What it tests**:
+- ✅ `@auth_rate_limited` - Both parameterized and non-parameterized usage
+- ✅ `@rate_limit('category')` - Category-based rate limiting
+- ✅ `@csrf_protected_enhanced` - CSRF token validation
+- ✅ `@security_validated` - Request security validation
+- ✅ Decorator stacking - Multiple decorators on same endpoint
+- ✅ Rate limit enforcement and IP blocking
+- ✅ CSRF token validation and constant-time comparison
+
+**Key Bug Regressions Prevented**:
+1. `@auth_rate_limited` decorator TypeError when used without parameters
+2. `@rate_limit` decorator with incorrect `limit=` and `per=` parameters
+3. Decorator stacking order issues
+
+#### Running All Backend Tests
+
+```bash
+cd backend
+
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage report
+pytest --cov=utils --cov-report=html tests/
+
+# Run specific test file
+pytest tests/test_decorators.py::TestSecurityDecorators::test_auth_rate_limited_without_param -v
+
+# Run tests in parallel (faster)
+pytest tests/ -n auto
+```
+
+### Frontend Type Safety (TypeScript)
+
+**TypeScript Infrastructure**: `frontend/src/types/`, `frontend/tsconfig.json`
+
+#### Type Definitions
+
+Comprehensive type definitions for all data models and API endpoints provide compile-time safety.
+
+**Available Types**:
+- `models.ts` - All data models (Roommate, Chore, Assignment, ShoppingItem, etc.)
+- `api.ts` - API endpoint types and response types
+- `index.ts` - Central export for all types
+
+**Usage Example**:
+```typescript
+import { Chore, RoommateAPI, ShoppingItem } from '@/types';
+
+const [chores, setChores] = useState<Chore[]>([]);
+const fetchChores = async () => {
+  const response = await choreAPI.getAll();
+  // response.data is automatically typed as Chore[]
+  setChores(response.data);
+};
+```
+
+#### Type Checking
+
+```bash
+cd frontend
+
+# Run type check (no build)
+npm run type-check
+
+# Watch mode for continuous checking
+npx tsc --noEmit --watch
+
+# Type check is also included in build
+npm run build
+```
+
+#### Migration Status
+
+TypeScript migration is **~15% complete** with infrastructure fully set up:
+- ✅ `tsconfig.json` configured for gradual migration
+- ✅ Complete type definitions for all models
+- ✅ `api.js` converted to `api.ts` as proof of concept
+- ⏳ Components and contexts pending migration
+
+**Migration Guide**: `frontend/TYPESCRIPT_MIGRATION.md`
+
+### Continuous Integration Recommendations
+
+Add these checks to your CI/CD pipeline:
+
+```yaml
+# Example GitHub Actions workflow
+backend-tests:
+  - name: Run Backend Tests
+    run: |
+      cd backend
+      pip install -r requirements.txt
+      pytest tests/ -v
+
+  - name: Check Handler Parity
+    run: |
+      cd backend
+      python3 scripts/check_handler_parity.py --fail-on-missing
+
+frontend-checks:
+  - name: TypeScript Type Check
+    run: |
+      cd frontend
+      npm install
+      npm run type-check
+
+  - name: Run E2E Tests
+    run: |
+      cd tests/playwright
+      npm install
+      npx playwright install
+      npm test
+```
+
+### Code Quality Best Practices
+
+1. **Always run parity check** after modifying DataHandler or DatabaseDataHandler
+2. **Run decorator tests** after modifying security middleware
+3. **Type check TypeScript** before committing `.ts` or `.tsx` files
+4. **Run all tests** before pushing to main branch
+5. **Review test output** - tests provide detailed error messages
+
+### Test Coverage Goals
+
+Current coverage:
+- Backend Unit Tests: ~40% (decorators, parity checks)
+- E2E Tests: ~80% (Playwright tests)
+- Type Safety: ~15% (TypeScript migration in progress)
+
+Target coverage:
+- Backend Unit Tests: 80%+
+- E2E Tests: 90%+
+- Type Safety: 100% (complete TypeScript migration)
+
 ## Dependencies and Installation
 
 ### Backend Dependencies (requirements.txt)
@@ -551,6 +752,9 @@ The application now dynamically determines redirect URIs based on environment:
 Flask==3.0.0
 Flask-CORS==4.0.0
 Flask-Session==0.5.0
+Flask-SQLAlchemy==3.0.5
+SQLAlchemy==2.0.23
+psycopg2-binary==2.9.7
 python-dateutil==2.8.2
 google-auth==2.23.4
 google-auth-oauthlib==1.1.0
@@ -558,19 +762,34 @@ google-api-python-client==2.108.0
 requests==2.31.0
 gunicorn==21.2.0
 apscheduler==3.10.4
+
+# Testing dependencies
+pytest==7.4.3
+pytest-flask==1.3.0
+pytest-cov==4.1.0
 ```
 
 ### Frontend Dependencies (package.json)
 ```json
 {
   "dependencies": {
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^14.0.0",
+    "@testing-library/user-event": "^14.0.0",
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
     "axios": "^1.6.0",
-    "@testing-library/jest-dom": "^6.0.0",
-    "@testing-library/react": "^14.0.0",
-    "@testing-library/user-event": "^14.0.0"
+    "typescript": "^5.3.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "type-check": "tsc --noEmit"
   }
 }
 ```

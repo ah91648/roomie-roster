@@ -228,25 +228,42 @@ def security_validated(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def auth_rate_limited(f):
-    """Rate limiting specifically for authentication endpoints."""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        security = getattr(current_app, 'security_middleware', None)
-        if not security:
+def auth_rate_limited(category='auth'):
+    """Rate limiting specifically for authentication endpoints.
+
+    Can be used with or without parameters:
+    - @auth_rate_limited (default 'auth' category)
+    - @auth_rate_limited('custom_category')
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            security = getattr(current_app, 'security_middleware', None)
+            if not security:
+                return f(*args, **kwargs)
+
+            ip = security.get_client_ip()
+
+            # Stricter rate limiting for auth endpoints
+            if security.is_rate_limited(ip, category):
+                # Block IP after repeated auth failures
+                security.block_ip(ip, duration_minutes=30)
+                security.log_security_event('AUTH_RATE_LIMIT_EXCEEDED', {
+                    'endpoint': request.endpoint,
+                    'category': category,
+                    'action': 'IP_BLOCKED'
+                })
+                return jsonify({'error': 'Too many authentication attempts. IP temporarily blocked.'}), 429
+
             return f(*args, **kwargs)
-        
-        ip = security.get_client_ip()
-        
-        # Stricter rate limiting for auth endpoints
-        if security.is_rate_limited(ip, 'auth'):
-            # Block IP after repeated auth failures
-            security.block_ip(ip, duration_minutes=30)
-            security.log_security_event('AUTH_RATE_LIMIT_EXCEEDED', {
-                'endpoint': request.endpoint,
-                'action': 'IP_BLOCKED'
-            })
-            return jsonify({'error': 'Too many authentication attempts. IP temporarily blocked.'}), 429
-        
-        return f(*args, **kwargs)
-    return decorated_function
+        return decorated_function
+
+    # Support both @auth_rate_limited and @auth_rate_limited('category')
+    if callable(category):
+        # Called without arguments: @auth_rate_limited
+        func = category
+        category = 'auth'
+        return decorator(func)
+    else:
+        # Called with arguments: @auth_rate_limited('category')
+        return decorator

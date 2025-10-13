@@ -1,0 +1,41 @@
+{
+  "household_defaults": {
+    "chore_notifications": {
+      "enabled": true,
+      "notify_assignee": true,
+      "notify_household": true,
+      "reminder_minutes": [
+        30,
+        10
+      ],
+      "include_sub_chores": true,
+      "event_duration_minutes": 60
+    },
+    "laundry_notifications": {
+      "enabled": true,
+      "block_all_calendars": true,
+      "reminder_minutes": [
+        15
+      ],
+      "include_buffer_time": true,
+      "buffer_minutes": 15
+    },
+    "notification_types": {
+      "assignment_notifications": true,
+      "due_date_reminders": true,
+      "completion_updates": false,
+      "overdue_alerts": true
+    },
+    "event_appearance": {
+      "chore_emoji": "\ud83e\uddf9",
+      "laundry_emoji": "\ud83e\uddfa",
+      "blocking_emoji": "\ud83d\udeab",
+      "include_points": true,
+      "include_roommate_names": true,
+      "color_coding": true
+    }
+  },
+  "user_preferences": {},
+  "created_at": "2025-10-12T18:16:25.198993",
+  "last_updated": "2025-10-12T18:16:25.198997"
+}

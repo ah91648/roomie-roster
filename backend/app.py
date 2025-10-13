@@ -1492,7 +1492,7 @@ def unlink_roommate_from_google_account(roommate_id):
 
 @app.route('/api/household-calendar/sync-status', methods=['GET'])
 @login_required
-def get_user_calendar_sync_status():
+def get_household_calendar_sync_status():
     """Get calendar sync status for the authenticated user."""
     try:
         if not household_calendar_service:
@@ -1535,7 +1535,7 @@ def get_user_available_calendars():
 @app.route('/api/household-calendar/manual-sync', methods=['POST'])
 @login_required
 @csrf_protected_enhanced
-@rate_limit(limit=5, per=60)  # Limit manual sync to 5 per minute
+@rate_limit('calendar')  # Limit manual sync
 def manual_sync_user_chores():
     """Manually sync user's chores to their calendar."""
     try:

@@ -1,0 +1,11 @@
+{
+  "chore_events": {},
+  "laundry_events": {},
+  "household_events": {},
+  "event_metadata": {
+    "created_at": "2025-10-12T18:16:25.199310",
+    "last_updated": "2025-10-12T18:16:25.199313",
+    "total_events_created": 0,
+    "total_events_deleted": 0
+  }
+}

@@ -69,7 +69,12 @@
       "mcp__playwright__browser_click",
       "mcp__playwright__browser_tab_select",
       "WebFetch(domain:render.com)",
-      "WebFetch(domain:community.render.com)"
+      "WebFetch(domain:community.render.com)",
+      "Bash(xargs kill:*)",
+      "Bash(cd:*)",
+      "Bash(comm:*)",
+      "Bash(python3:*)",
+      "Bash(cat:*)"
     ],
     "deny": []
   }
