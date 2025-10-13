@@ -6,6 +6,7 @@ from typing import Dict, Optional, Callable
 from flask import session, request, jsonify, current_app
 from .auth_service import AuthService
 from .data_handler import DataHandler
+from .dev_auth_bypass import dev_auth_bypass, get_bypass_status
 
 class SessionManager:
     """Secure session management for RoomieRoster authentication."""
@@ -250,9 +251,21 @@ class SessionManager:
 
 # Decorators for route protection
 def login_required(f: Callable) -> Callable:
-    """Decorator to require authentication for a route."""
+    """
+    Decorator to require authentication for a route.
+    Supports development bypass when DEV_AUTH_BYPASS=true.
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Check if development bypass is enabled
+        if dev_auth_bypass.is_bypass_enabled():
+            dev_auth_bypass.log_bypass_usage(f.__name__)
+            # Inject mock session manager if not present
+            if not hasattr(current_app, 'session_manager') or current_app.session_manager is None:
+                current_app.session_manager = dev_auth_bypass.get_mock_session_manager()
+            return f(*args, **kwargs)
+
+        # Normal authentication check
         session_manager = getattr(current_app, 'session_manager', None)
         if not session_manager or not session_manager.is_authenticated():
             return jsonify({'error': 'Authentication required'}), 401
@@ -260,31 +273,52 @@ def login_required(f: Callable) -> Callable:
     return decorated_function
 
 def roommate_required(f: Callable) -> Callable:
-    """Decorator to require roommate linking for a route."""
+    """
+    Decorator to require roommate linking for a route.
+    Supports development bypass when DEV_AUTH_BYPASS=true.
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Check if development bypass is enabled
+        if dev_auth_bypass.is_bypass_enabled():
+            dev_auth_bypass.log_bypass_usage(f.__name__)
+            # Inject mock session manager if not present
+            if not hasattr(current_app, 'session_manager') or current_app.session_manager is None:
+                current_app.session_manager = dev_auth_bypass.get_mock_session_manager()
+            return f(*args, **kwargs)
+
+        # Normal authentication check
         session_manager = getattr(current_app, 'session_manager', None)
         if not session_manager or not session_manager.is_authenticated():
             return jsonify({'error': 'Authentication required'}), 401
-        
+
         if not session_manager.get_current_roommate():
             return jsonify({'error': 'Roommate linking required'}), 403
-        
+
         return f(*args, **kwargs)
     return decorated_function
 
 def csrf_protected(f: Callable) -> Callable:
-    """Decorator to require CSRF token for a route."""
+    """
+    Decorator to require CSRF token for a route.
+    Supports development bypass when DEV_AUTH_BYPASS=true.
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Check if development bypass is enabled
+        if dev_auth_bypass.is_bypass_enabled():
+            dev_auth_bypass.log_bypass_usage(f.__name__)
+            return f(*args, **kwargs)
+
+        # Normal CSRF check
         session_manager = getattr(current_app, 'session_manager', None)
         if not session_manager:
             return jsonify({'error': 'Session manager not available'}), 500
-        
+
         # Check for CSRF token in headers or form data
         csrf_token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
         if not csrf_token or not session_manager.validate_csrf_token(csrf_token):
             return jsonify({'error': 'Invalid CSRF token'}), 403
-        
+
         return f(*args, **kwargs)
     return decorated_function

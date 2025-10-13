@@ -1,0 +1,126 @@
+name: Database Backup
+
+on:
+  # Run daily at 2 AM UTC
+  schedule:
+    - cron: '0 2 * * *'
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Create database backup
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+          BACKUP_FILE="roomieroster_backup_$TIMESTAMP.sql"
+          COMPRESSED_FILE="$BACKUP_FILE.gz"
+
+          echo "Creating database backup..."
+          pg_dump "$DATABASE_URL" > "$BACKUP_FILE"
+
+          echo "Compressing backup..."
+          gzip "$BACKUP_FILE"
+
+          SIZE=$(du -h "$COMPRESSED_FILE" | cut -f1)
+          echo "Backup size: $SIZE"
+
+          echo "BACKUP_FILE=$COMPRESSED_FILE" >> $GITHUB_ENV
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+
+      - name: Upload to S3
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+        run: |
+          echo "Uploading backup to S3..."
+          aws s3 cp "$BACKUP_FILE" "s3://$S3_BUCKET/backups/$BACKUP_FILE" \
+            --storage-class STANDARD_IA \
+            --metadata "timestamp=$TIMESTAMP,app=roomieroster,source=github-actions"
+
+          echo "Verifying upload..."
+          aws s3 ls "s3://$S3_BUCKET/backups/$BACKUP_FILE"
+
+          echo "✅ Backup uploaded successfully!"
+
+      - name: Clean up old backups
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+          RETENTION_DAYS: 30
+        run: |
+          echo "Cleaning up backups older than $RETENTION_DAYS days..."
+
+          CUTOFF_DATE=$(date -d "$RETENTION_DAYS days ago" +%Y-%m-%d)
+
+          aws s3 ls "s3://$S3_BUCKET/backups/" | while read -r line; do
+            FILE_DATE=$(echo $line | awk '{print $1}')
+            FILE_NAME=$(echo $line | awk '{print $4}')
+
+            if [[ ! -z "$FILE_NAME" ]] && [[ "$FILE_DATE" < "$CUTOFF_DATE" ]]; then
+              echo "Deleting old backup: $FILE_NAME"
+              aws s3 rm "s3://$S3_BUCKET/backups/$FILE_NAME"
+            fi
+          done
+
+          BACKUP_COUNT=$(aws s3 ls "s3://$S3_BUCKET/backups/" | grep ".sql.gz" | wc -l)
+          echo "Total backups: $BACKUP_COUNT"
+
+      - name: Report status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ Database backup completed successfully!"
+          else
+            echo "❌ Database backup failed!"
+            exit 1
+          fi
+
+      - name: Send notification on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue_body = `## 🚨 Database Backup Failed
+
+            The automated database backup failed on ${new Date().toISOString()}.
+
+            **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Please investigate and ensure database backups are functioning properly.
+
+            ### Troubleshooting Steps:
+            1. Check if DATABASE_URL secret is set correctly
+            2. Verify AWS credentials are valid
+            3. Ensure S3 bucket exists and is accessible
+            4. Review workflow logs for specific error messages
+
+            cc: @${{ github.repository_owner }}
+            `;
+
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Database Backup Failed',
+              body: issue_body,
+              labels: ['bug', 'high-priority', 'backup']
+            });
