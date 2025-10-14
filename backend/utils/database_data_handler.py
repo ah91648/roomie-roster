@@ -183,7 +183,10 @@ class DatabaseDataHandler:
                 roommate = Roommate.query.filter_by(id=roommate_id).first()
                 if not roommate:
                     raise ValueError(f"Roommate with id {roommate_id} not found")
-                
+
+                # Delete associated assignments first to avoid foreign key constraint violation
+                Assignment.query.filter_by(roommate_id=roommate_id).delete()
+
                 db.session.delete(roommate)
                 db.session.commit()
             except SQLAlchemyError as e:
