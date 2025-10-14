@@ -104,15 +104,44 @@ class DatabaseDataHandler:
             return self._read_json(self.roommates_file)
     
     def save_roommates(self, roommates: List[Dict]):
-        """Save roommates."""
+        """Save roommates by updating existing records instead of deleting and recreating.
+
+        This method updates roommates in place to preserve foreign key relationships
+        with assignments and other tables.
+        """
         if self.use_database:
             try:
-                # This is typically not used in database mode - individual operations are preferred
-                # But we'll support it for compatibility
-                Roommate.query.delete()
+                # Update or insert each roommate individually to preserve foreign keys
                 for roommate_data in roommates:
-                    roommate = Roommate(**roommate_data)
-                    db.session.add(roommate)
+                    roommate_id = roommate_data.get('id')
+                    if not roommate_id:
+                        # Skip roommates without an ID
+                        self.logger.warning(f"Skipping roommate without ID: {roommate_data}")
+                        continue
+
+                    # Try to find existing roommate
+                    existing_roommate = Roommate.query.filter_by(id=roommate_id).first()
+
+                    if existing_roommate:
+                        # Update existing roommate
+                        existing_roommate.name = roommate_data.get('name', existing_roommate.name)
+                        existing_roommate.current_cycle_points = roommate_data.get('current_cycle_points', 0)
+                        existing_roommate.google_id = roommate_data.get('google_id')
+                        existing_roommate.google_profile_picture_url = roommate_data.get('google_profile_picture_url')
+                        if roommate_data.get('linked_at'):
+                            existing_roommate.linked_at = datetime.fromisoformat(roommate_data['linked_at']) if isinstance(roommate_data['linked_at'], str) else roommate_data['linked_at']
+                    else:
+                        # Create new roommate if it doesn't exist
+                        new_roommate = Roommate(
+                            id=roommate_id,
+                            name=roommate_data['name'],
+                            current_cycle_points=roommate_data.get('current_cycle_points', 0),
+                            google_id=roommate_data.get('google_id'),
+                            google_profile_picture_url=roommate_data.get('google_profile_picture_url'),
+                            linked_at=datetime.fromisoformat(roommate_data['linked_at']) if roommate_data.get('linked_at') and isinstance(roommate_data['linked_at'], str) else roommate_data.get('linked_at')
+                        )
+                        db.session.add(new_roommate)
+
                 db.session.commit()
             except SQLAlchemyError as e:
                 self.logger.error(f"Database error saving roommates: {e}")
