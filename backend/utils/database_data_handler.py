@@ -1811,6 +1811,157 @@ class DatabaseDataHandler:
                 'timestamp': datetime.utcnow().isoformat()
             }
 
+    def _parse_laundry_slot_end_time(self, slot: Dict) -> Optional[datetime]:
+        """
+        Parse laundry slot's date and time_slot to get end datetime.
+        Handles various time formats: "08:00-10:00", "12:00 PM-2:00 PM", etc.
+        Returns None if parsing fails.
+        """
+        try:
+            date_str = slot.get('date')  # YYYY-MM-DD format
+            time_slot = slot.get('time_slot')  # e.g., "12:00 PM-2:00 PM"
+
+            if not date_str or not time_slot:
+                return None
+
+            # Extract end time from time_slot (format: "start-end")
+            if '-' in time_slot:
+                end_time_str = time_slot.split('-')[1].strip()
+            else:
+                self.logger.warning(f"Invalid time_slot format: {time_slot}")
+                return None
+
+            # Combine date and end time
+            datetime_str = f"{date_str} {end_time_str}"
+
+            # Try parsing with different formats
+            for fmt in ['%Y-%m-%d %I:%M %p', '%Y-%m-%d %H:%M', '%Y-%m-%d %I:%M%p']:
+                try:
+                    return datetime.strptime(datetime_str, fmt)
+                except ValueError:
+                    continue
+
+            self.logger.warning(f"Could not parse datetime: {datetime_str}")
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error parsing laundry slot end time: {e}")
+            return None
+
+    def _is_laundry_slot_past(self, slot: Dict) -> bool:
+        """
+        Check if a laundry slot's end time has passed.
+        Returns True if the slot is past, False otherwise.
+        """
+        end_time = self._parse_laundry_slot_end_time(slot)
+        if end_time is None:
+            # If we can't parse the time, assume it's not past (safe default)
+            return False
+
+        return datetime.now() > end_time
+
+    def get_active_laundry_slots(self) -> List[Dict]:
+        """
+        Get all active laundry slots (not past their end time).
+        Filters out slots whose end time has already passed.
+        """
+        all_slots = self.get_laundry_slots()
+        active_slots = [slot for slot in all_slots if not self._is_laundry_slot_past(slot)]
+        return active_slots
+
+    def auto_complete_past_laundry_slots(self) -> int:
+        """
+        Automatically mark past scheduled laundry slots as completed.
+        Only affects slots with status='scheduled' whose end time has passed.
+        Returns the number of slots auto-completed.
+        """
+        try:
+            all_slots = self.get_laundry_slots()
+            completed_count = 0
+
+            for slot in all_slots:
+                # Only auto-complete scheduled slots
+                if slot.get('status') != 'scheduled':
+                    continue
+
+                # Check if slot is past
+                if self._is_laundry_slot_past(slot):
+                    try:
+                        # Mark as completed
+                        self.mark_laundry_slot_completed(
+                            slot['id'],
+                            actual_loads=slot.get('estimated_loads'),
+                            completion_notes="Auto-completed (past scheduled time)"
+                        )
+                        completed_count += 1
+                        self.logger.info(f"Auto-completed past laundry slot {slot['id']}")
+                    except Exception as e:
+                        self.logger.error(f"Error auto-completing slot {slot['id']}: {e}")
+
+            return completed_count
+
+        except Exception as e:
+            self.logger.error(f"Error in auto_complete_past_laundry_slots: {e}")
+            return 0
+
+    def delete_old_completed_laundry_slots(self, days_threshold: int = 30) -> int:
+        """
+        Delete completed laundry slots older than the specified threshold.
+        Default: 30 days. Returns the number of slots deleted.
+        """
+        try:
+            if self.use_database:
+                from datetime import timedelta
+                cutoff_date = datetime.now() - timedelta(days=days_threshold)
+
+                deleted_count = LaundrySlot.query.filter(
+                    and_(
+                        LaundrySlot.status == 'completed',
+                        LaundrySlot.completed_date < cutoff_date
+                    )
+                ).delete()
+
+                db.session.commit()
+                self.logger.info(f"Deleted {deleted_count} old completed laundry slots")
+                return deleted_count
+            else:
+                # JSON file mode
+                from datetime import timedelta
+                slots = self.get_laundry_slots()
+                cutoff_date = datetime.now() - timedelta(days=days_threshold)
+
+                initial_count = len(slots)
+                filtered_slots = []
+
+                for slot in slots:
+                    # Keep slot if not completed OR completed recently
+                    if slot.get('status') != 'completed':
+                        filtered_slots.append(slot)
+                    else:
+                        completed_date_str = slot.get('completed_date')
+                        if completed_date_str:
+                            try:
+                                completed_date = datetime.fromisoformat(completed_date_str)
+                                if completed_date >= cutoff_date:
+                                    filtered_slots.append(slot)
+                            except ValueError:
+                                # If date parsing fails, keep the slot
+                                filtered_slots.append(slot)
+                        else:
+                            # No completion date, keep it
+                            filtered_slots.append(slot)
+
+                deleted_count = initial_count - len(filtered_slots)
+                self.save_laundry_slots(filtered_slots)
+                self.logger.info(f"Deleted {deleted_count} old completed laundry slots")
+                return deleted_count
+
+        except Exception as e:
+            self.logger.error(f"Error deleting old completed laundry slots: {e}")
+            if self.use_database:
+                db.session.rollback()
+            return 0
+
     # Blocked Time Slots operations
     def get_blocked_time_slots(self) -> List[Dict]:
         """Get all blocked time slots."""

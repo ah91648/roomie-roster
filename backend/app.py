@@ -124,8 +124,8 @@ if CALENDAR_NOTIFICATIONS_AVAILABLE:
         print(f"Failed to initialize household calendar notification service: {str(e)}")
         household_calendar_service = None
 
-# Initialize scheduler service for automatic cycle resets
-scheduler_service = SchedulerService(assignment_logic=assignment_logic)
+# Initialize scheduler service for automatic cycle resets and laundry cleanup
+scheduler_service = SchedulerService(assignment_logic=assignment_logic, data_handler=data_handler)
 
 # Initialize session management and security with app
 session_manager.init_app(app)
@@ -1103,13 +1103,15 @@ def get_scheduler_status():
 @app.route('/api/laundry-slots', methods=['GET'])
 @login_required
 def get_laundry_slots():
-    """Get all laundry slots."""
+    """Get all laundry slots with optional filtering."""
     try:
         # Check for query parameters
         date = request.args.get('date')
         roommate_id = request.args.get('roommate_id')
         status = request.args.get('status')
-        
+        include_past = request.args.get('include_past', 'false').lower() == 'true'
+
+        # Get slots based on filters
         if date:
             slots = data_handler.get_laundry_slots_by_date(date)
         elif roommate_id:
@@ -1117,8 +1119,12 @@ def get_laundry_slots():
         elif status:
             slots = data_handler.get_laundry_slots_by_status(status)
         else:
-            slots = data_handler.get_laundry_slots()
-        
+            # By default, filter out past slots unless explicitly requested
+            if include_past:
+                slots = data_handler.get_laundry_slots()
+            else:
+                slots = data_handler.get_active_laundry_slots()
+
         return jsonify(slots)
     except Exception as e:
         print(f"Error getting laundry slots: {e}")

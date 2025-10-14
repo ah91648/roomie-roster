@@ -6,9 +6,10 @@ import atexit
 
 class SchedulerService:
     """Handles scheduled tasks for the RoomieRoster application."""
-    
-    def __init__(self, assignment_logic=None):
+
+    def __init__(self, assignment_logic=None, data_handler=None):
         self.assignment_logic = assignment_logic
+        self.data_handler = data_handler
         self.scheduler = None
         self.logger = logging.getLogger(__name__)
         
@@ -35,10 +36,34 @@ class SchedulerService:
             replace_existing=True,
             misfire_grace_time=300  # Allow up to 5 minutes grace period
         )
-        
+
+        # Schedule auto-completion of past laundry slots (runs every hour)
+        self.scheduler.add_job(
+            func=self._auto_complete_past_laundry,
+            trigger='cron',
+            hour='*',  # Every hour
+            minute=15,  # At 15 minutes past the hour
+            id='auto_complete_laundry',
+            name='Auto-complete Past Laundry Slots',
+            replace_existing=True,
+            misfire_grace_time=600  # Allow up to 10 minutes grace period
+        )
+
+        # Schedule cleanup of old completed laundry slots (runs daily at 2 AM)
+        self.scheduler.add_job(
+            func=self._cleanup_old_laundry_slots,
+            trigger='cron',
+            hour=2,
+            minute=0,
+            id='cleanup_old_laundry',
+            name='Cleanup Old Completed Laundry Slots',
+            replace_existing=True,
+            misfire_grace_time=1800  # Allow up to 30 minutes grace period
+        )
+
         # Start the scheduler
         self.scheduler.start()
-        self.logger.info("Scheduler started with weekly cycle reset job")
+        self.logger.info("Scheduler started with all scheduled jobs")
         
         # Ensure the scheduler shuts down when the application exits
         atexit.register(self.shutdown)
@@ -66,7 +91,47 @@ class SchedulerService:
             
         except Exception as e:
             self.logger.error(f"Error during automatic cycle reset: {e}", exc_info=True)
-            
+
+    def _auto_complete_past_laundry(self):
+        """Automatically mark past scheduled laundry slots as completed."""
+        try:
+            self.logger.info("Starting auto-completion of past laundry slots")
+
+            if self.data_handler is None:
+                self.logger.error("Data handler not available for auto-completion")
+                return
+
+            # Auto-complete past scheduled slots
+            completed_count = self.data_handler.auto_complete_past_laundry_slots()
+
+            if completed_count > 0:
+                self.logger.info(f"Auto-completed {completed_count} past laundry slots")
+            else:
+                self.logger.debug("No past laundry slots to auto-complete")
+
+        except Exception as e:
+            self.logger.error(f"Error during auto-completion of past laundry slots: {e}", exc_info=True)
+
+    def _cleanup_old_laundry_slots(self):
+        """Delete completed laundry slots older than 30 days."""
+        try:
+            self.logger.info("Starting cleanup of old completed laundry slots")
+
+            if self.data_handler is None:
+                self.logger.error("Data handler not available for cleanup")
+                return
+
+            # Delete old completed slots (default: 30 days threshold)
+            deleted_count = self.data_handler.delete_old_completed_laundry_slots(days_threshold=30)
+
+            if deleted_count > 0:
+                self.logger.info(f"Deleted {deleted_count} old completed laundry slots")
+            else:
+                self.logger.debug("No old laundry slots to delete")
+
+        except Exception as e:
+            self.logger.error(f"Error during cleanup of old laundry slots: {e}", exc_info=True)
+
     def _job_executed(self, event):
         """Log successful job execution."""
         self.logger.info(f"Job '{event.job_id}' executed successfully")
