@@ -1009,23 +1009,36 @@ def update_roommate(roommate_id):
 @app.route('/api/roommates/<int:roommate_id>', methods=['DELETE'])
 @login_required
 def delete_roommate(roommate_id):
-    """Delete a roommate."""
+    """Delete a roommate and all associated data."""
     try:
+        app.logger.info(f"Attempting to delete roommate with id: {roommate_id}")
+
         roommates = data_handler.get_roommates()
         original_count = len(roommates)
-        
+
+        # Attempt to delete the roommate and all associated records
         data_handler.delete_roommate(roommate_id)
-        
+
         # Check if anything was actually deleted
         new_roommates = data_handler.get_roommates()
         if len(new_roommates) == original_count:
+            app.logger.warning(f"Roommate {roommate_id} not found")
             return jsonify({'error': 'Roommate not found'}), 404
-        
+
+        app.logger.info(f"✓ Successfully deleted roommate {roommate_id}")
         return jsonify({'message': 'Roommate deleted successfully'}), 200
-        
+
+    except ValueError as e:
+        # Handle "roommate not found" errors
+        app.logger.warning(f"Roommate {roommate_id} not found: {e}")
+        return jsonify({'error': str(e)}), 404
     except Exception as e:
-        print(f"Error deleting roommate: {e}")
-        return jsonify({'error': 'Failed to delete roommate'}), 500
+        # Log detailed error information for debugging
+        app.logger.error(f"❌ Error deleting roommate {roommate_id}: {e}")
+        app.logger.error(f"Full traceback:\n{traceback.format_exc()}")
+        print(f"Error deleting roommate {roommate_id}: {e}")
+        print(f"Full traceback:\n{traceback.format_exc()}")
+        return jsonify({'error': f'Failed to delete roommate: {str(e)}'}), 500
 
 # Assignment endpoints
 @app.route('/api/assign-chores', methods=['POST'])

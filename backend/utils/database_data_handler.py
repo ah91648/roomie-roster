@@ -16,7 +16,7 @@ from sqlalchemy import or_, and_
 from .database_config import db, database_config
 from .database_models import (
     Roommate, Chore, SubChore, Assignment, ApplicationState,
-    ShoppingItem, Request, LaundrySlot, BlockedTimeSlot
+    ShoppingItem, Request, LaundrySlot, BlockedTimeSlot, CalendarSyncStatus
 )
 
 class DatabaseDataHandler:
@@ -177,20 +177,62 @@ class DatabaseDataHandler:
             raise ValueError(f"Roommate with id {roommate_id} not found")
     
     def delete_roommate(self, roommate_id: int):
-        """Delete a roommate."""
+        """Delete a roommate and all associated data."""
         if self.use_database:
             try:
                 roommate = Roommate.query.filter_by(id=roommate_id).first()
                 if not roommate:
                     raise ValueError(f"Roommate with id {roommate_id} not found")
 
-                # Delete associated assignments first to avoid foreign key constraint violation
-                Assignment.query.filter_by(roommate_id=roommate_id).delete()
+                self.logger.info(f"Deleting roommate {roommate_id} ({roommate.name}) and all associated records")
 
+                # Delete associated records to avoid foreign key constraint violations
+                # Order matters: delete child records before parent
+
+                # 1. Delete assignments
+                assignments_deleted = Assignment.query.filter_by(roommate_id=roommate_id).delete()
+                self.logger.info(f"  - Deleted {assignments_deleted} assignment(s)")
+
+                # 2. Delete requests created by this roommate
+                requests_deleted = Request.query.filter_by(requested_by=roommate_id).delete()
+                self.logger.info(f"  - Deleted {requests_deleted} request(s)")
+
+                # 3. Delete laundry slots
+                laundry_deleted = LaundrySlot.query.filter_by(roommate_id=roommate_id).delete()
+                self.logger.info(f"  - Deleted {laundry_deleted} laundry slot(s)")
+
+                # 4. Delete blocked time slots created by this roommate
+                blocked_deleted = BlockedTimeSlot.query.filter_by(created_by=roommate_id).delete()
+                self.logger.info(f"  - Deleted {blocked_deleted} blocked time slot(s)")
+
+                # 5. Delete calendar sync status
+                sync_deleted = CalendarSyncStatus.query.filter_by(roommate_id=roommate_id).delete()
+                self.logger.info(f"  - Deleted {sync_deleted} calendar sync status record(s)")
+
+                # 6. Handle shopping items:
+                #    - Delete items added by this roommate (added_by is NOT NULL)
+                #    - Set purchased_by to NULL for items purchased by this roommate
+                shopping_added_deleted = ShoppingItem.query.filter_by(added_by=roommate_id).delete()
+                self.logger.info(f"  - Deleted {shopping_added_deleted} shopping item(s) added by roommate")
+
+                shopping_purchased = ShoppingItem.query.filter_by(purchased_by=roommate_id).all()
+                for item in shopping_purchased:
+                    item.purchased_by = None
+                    item.purchased_by_name = None
+                self.logger.info(f"  - Nullified purchase info for {len(shopping_purchased)} shopping item(s)")
+
+                # Finally, delete the roommate
                 db.session.delete(roommate)
                 db.session.commit()
+
+                self.logger.info(f"✓ Successfully deleted roommate {roommate_id} and all associated data")
+
             except SQLAlchemyError as e:
-                self.logger.error(f"Database error deleting roommate: {e}")
+                self.logger.error(f"Database error deleting roommate {roommate_id}: {e}", exc_info=True)
+                db.session.rollback()
+                raise
+            except Exception as e:
+                self.logger.error(f"Unexpected error deleting roommate {roommate_id}: {e}", exc_info=True)
                 db.session.rollback()
                 raise
         else:
