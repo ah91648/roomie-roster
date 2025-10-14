@@ -10,6 +10,7 @@ const LaundryScheduler = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingSlot, setEditingSlot] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [viewMode, setViewMode] = useState('month'); // 'day', 'week', 'month', 'all'
   const [filterRoommate, setFilterRoommate] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
@@ -241,10 +242,36 @@ const LaundryScheduler = () => {
 
   const getFilteredSlots = () => {
     return slots.filter(slot => {
+      // Roommate filter
       if (filterRoommate && slot.roommate_id !== parseInt(filterRoommate)) return false;
+
+      // Status filter
       if (filterStatus && slot.status !== filterStatus) return false;
-      if (selectedDate && slot.date !== selectedDate) return false;
-      return true;
+
+      // Date range filter based on view mode
+      const slotDate = new Date(slot.date + 'T00:00:00');
+      const baseDate = new Date(selectedDate + 'T00:00:00');
+
+      switch(viewMode) {
+        case 'day':
+          return slot.date === selectedDate;
+        case 'week': {
+          // Calculate week start (Sunday) and end (Saturday)
+          const weekStart = new Date(baseDate);
+          weekStart.setDate(baseDate.getDate() - baseDate.getDay());
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekStart.getDate() + 6);
+          weekEnd.setHours(23, 59, 59);
+          return slotDate >= weekStart && slotDate <= weekEnd;
+        }
+        case 'month':
+          return slotDate.getMonth() === baseDate.getMonth() &&
+                 slotDate.getFullYear() === baseDate.getFullYear();
+        case 'all':
+          return true;
+        default:
+          return true;
+      }
     });
   };
 
@@ -256,6 +283,92 @@ const LaundryScheduler = () => {
       case 'cancelled': return '#6c757d';
       default: return '#007bff';
     }
+  };
+
+  // Get description of current view range
+  const getViewRangeDescription = () => {
+    const baseDate = new Date(selectedDate + 'T00:00:00');
+    const options = { month: 'long', day: 'numeric', year: 'numeric' };
+
+    switch(viewMode) {
+      case 'day':
+        return baseDate.toLocaleDateString(undefined, options);
+      case 'week': {
+        const weekStart = new Date(baseDate);
+        weekStart.setDate(baseDate.getDate() - baseDate.getDay());
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        return `${weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString(undefined, options)}`;
+      }
+      case 'month':
+        return baseDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      case 'all':
+        return 'All Time';
+      default:
+        return '';
+    }
+  };
+
+  // Navigate to previous period
+  const navigatePrevious = () => {
+    const baseDate = new Date(selectedDate + 'T00:00:00');
+
+    switch(viewMode) {
+      case 'day':
+        baseDate.setDate(baseDate.getDate() - 1);
+        break;
+      case 'week':
+        baseDate.setDate(baseDate.getDate() - 7);
+        break;
+      case 'month':
+        baseDate.setMonth(baseDate.getMonth() - 1);
+        break;
+      default:
+        return;
+    }
+
+    setSelectedDate(baseDate.toISOString().split('T')[0]);
+  };
+
+  // Navigate to next period
+  const navigateNext = () => {
+    const baseDate = new Date(selectedDate + 'T00:00:00');
+
+    switch(viewMode) {
+      case 'day':
+        baseDate.setDate(baseDate.getDate() + 1);
+        break;
+      case 'week':
+        baseDate.setDate(baseDate.getDate() + 7);
+        break;
+      case 'month':
+        baseDate.setMonth(baseDate.getMonth() + 1);
+        break;
+      default:
+        return;
+    }
+
+    setSelectedDate(baseDate.toISOString().split('T')[0]);
+  };
+
+  // Group slots by date for multi-day views
+  const groupSlotsByDate = (slots) => {
+    const grouped = {};
+
+    slots.forEach(slot => {
+      if (!grouped[slot.date]) {
+        grouped[slot.date] = [];
+      }
+      grouped[slot.date].push(slot);
+    });
+
+    // Sort dates and sort slots within each date by time
+    return Object.keys(grouped)
+      .sort()
+      .map(date => ({
+        date,
+        slots: grouped[date].sort((a, b) => a.time_slot.localeCompare(b.time_slot))
+      }));
   };
 
   if (loading) {
@@ -300,18 +413,63 @@ const LaundryScheduler = () => {
 
       {error && <div className="error">{error}</div>}
 
-      {/* Filters */}
+      {/* View Controls */}
       <div className="filters">
-        <div className="form-row">
+        <div className="form-row" style={{ alignItems: 'center', gap: '16px' }}>
+          {/* View Mode Selector */}
           <div className="form-group">
-            <label>Filter by Date:</label>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+            <label>View:</label>
+            <select
+              value={viewMode}
+              onChange={(e) => setViewMode(e.target.value)}
               className="input"
-            />
+              style={{ fontWeight: '500' }}
+            >
+              <option value="day">Today</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+              <option value="all">All Time</option>
+            </select>
           </div>
+
+          {/* Date Navigation */}
+          {viewMode !== 'all' && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                onClick={navigatePrevious}
+                className="button small secondary"
+                title="Previous"
+              >
+                ◀
+              </button>
+              <span style={{
+                minWidth: '200px',
+                textAlign: 'center',
+                fontWeight: '500',
+                fontSize: '0.95rem'
+              }}>
+                {getViewRangeDescription()}
+              </span>
+              <button
+                onClick={navigateNext}
+                className="button small secondary"
+                title="Next"
+              >
+                ▶
+              </button>
+              <button
+                onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+                className="button small secondary"
+                style={{ marginLeft: '8px' }}
+              >
+                Today
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Filters Row */}
+        <div className="form-row" style={{ marginTop: '12px' }}>
           <div className="form-group">
             <label>Filter by Roommate:</label>
             <select
@@ -471,33 +629,30 @@ const LaundryScheduler = () => {
       <div className="laundry-slots">
         <h3>
           Laundry Slots
-          {selectedDate && ` for ${new Date(selectedDate).toLocaleDateString()}`}
-          ({filteredSlots.length} slots)
+          {viewMode === 'all' && ' - All Time'}
+          {' '}({filteredSlots.length} {filteredSlots.length === 1 ? 'slot' : 'slots'})
         </h3>
-        
+
         {filteredSlots.length === 0 ? (
           <div className="empty-state">
-            No laundry slots found. {showAddForm ? 'Fill out the form above to schedule your first laundry session.' : 'Click "Schedule Laundry" to get started!'}
+            No laundry slots found for {getViewRangeDescription().toLowerCase()}. {showAddForm ? 'Fill out the form above to schedule your first laundry session.' : 'Click "Schedule Laundry" to get started!'}
           </div>
-        ) : (
+        ) : viewMode === 'day' ? (
+          // Single day view - show flat list
           <div className="items-grid">
             {filteredSlots.map(slot => (
               <div key={slot.id} className="item-card laundry-slot-card">
                 <div className="card-header">
                   <h4>{slot.roommate_name}</h4>
-                  <span 
+                  <span
                     className="status-badge"
                     style={{ backgroundColor: getStatusColor(slot.status) }}
                   >
                     {slot.status.replace('_', ' ')}
                   </span>
                 </div>
-                
+
                 <div className="card-content">
-                  <div className="detail-item">
-                    <span className="label">Date:</span>
-                    <span>{new Date(slot.date).toLocaleDateString()}</span>
-                  </div>
                   <div className="detail-item">
                     <span className="label">Time:</span>
                     <span>{formatTimeSlot(slot.time_slot)}</span>
@@ -513,7 +668,7 @@ const LaundryScheduler = () => {
                   <div className="detail-item">
                     <span className="label">Loads:</span>
                     <span>
-                      {slot.status === 'completed' 
+                      {slot.status === 'completed'
                         ? `${slot.actual_loads || slot.estimated_loads} completed`
                         : `${slot.estimated_loads} estimated`
                       }
@@ -530,13 +685,13 @@ const LaundryScheduler = () => {
                 <div className="item-actions">
                   {slot.status === 'scheduled' && (
                     <>
-                      <button 
+                      <button
                         onClick={() => handleEdit(slot)}
                         className="button small secondary"
                       >
                         Edit
                       </button>
-                      <button 
+                      <button
                         onClick={() => handleComplete(slot.id)}
                         className="button small primary"
                       >
@@ -544,12 +699,106 @@ const LaundryScheduler = () => {
                       </button>
                     </>
                   )}
-                  <button 
+                  <button
                     onClick={() => handleDelete(slot.id)}
                     className="button small danger"
                   >
                     Delete
                   </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          // Multi-day view - group by date
+          <div>
+            {groupSlotsByDate(filteredSlots).map(({ date, slots: dateSlots }) => (
+              <div key={date} style={{ marginBottom: '24px' }}>
+                <h4 style={{
+                  backgroundColor: '#f5f5f5',
+                  padding: '8px 12px',
+                  borderRadius: '4px',
+                  marginBottom: '12px',
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  color: '#333'
+                }}>
+                  {new Date(date + 'T00:00:00').toLocaleDateString(undefined, {
+                    weekday: 'long',
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric'
+                  })} ({dateSlots.length} {dateSlots.length === 1 ? 'slot' : 'slots'})
+                </h4>
+                <div className="items-grid">
+                  {dateSlots.map(slot => (
+                    <div key={slot.id} className="item-card laundry-slot-card">
+                      <div className="card-header">
+                        <h4>{slot.roommate_name}</h4>
+                        <span
+                          className="status-badge"
+                          style={{ backgroundColor: getStatusColor(slot.status) }}
+                        >
+                          {slot.status.replace('_', ' ')}
+                        </span>
+                      </div>
+
+                      <div className="card-content">
+                        <div className="detail-item">
+                          <span className="label">Time:</span>
+                          <span>{formatTimeSlot(slot.time_slot)}</span>
+                        </div>
+                        <div className="detail-item">
+                          <span className="label">Machine:</span>
+                          <span>{slot.machine_type}</span>
+                        </div>
+                        <div className="detail-item">
+                          <span className="label">Load Type:</span>
+                          <span>{slot.load_type}</span>
+                        </div>
+                        <div className="detail-item">
+                          <span className="label">Loads:</span>
+                          <span>
+                            {slot.status === 'completed'
+                              ? `${slot.actual_loads || slot.estimated_loads} completed`
+                              : `${slot.estimated_loads} estimated`
+                            }
+                          </span>
+                        </div>
+                        {slot.notes && (
+                          <div className="detail-item">
+                            <span className="label">Notes:</span>
+                            <span>{slot.notes}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="item-actions">
+                        {slot.status === 'scheduled' && (
+                          <>
+                            <button
+                              onClick={() => handleEdit(slot)}
+                              className="button small secondary"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleComplete(slot.id)}
+                              className="button small primary"
+                            >
+                              Complete
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => handleDelete(slot.id)}
+                          className="button small danger"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
