@@ -353,40 +353,48 @@ def update_chore(chore_id):
     """Update an existing chore."""
     try:
         data = request.get_json()
+
+        # Validate input data
+        if 'frequency' in data and data['frequency'] not in ['daily', 'weekly', 'bi-weekly']:
+            return jsonify({'error': 'Invalid frequency'}), 400
+
+        if 'type' in data and data['type'] not in ['predefined', 'random']:
+            return jsonify({'error': 'Invalid type'}), 400
+
+        if 'points' in data and (not isinstance(data['points'], int) or data['points'] < 1):
+            return jsonify({'error': 'Points must be a positive integer'}), 400
+
+        # Get existing chore to preserve fields not being updated
         chores = data_handler.get_chores()
-        
-        # Find the chore to update
-        chore_to_update = None
+        existing_chore = None
         for chore in chores:
             if chore['id'] == chore_id:
-                chore_to_update = chore
+                existing_chore = chore
                 break
-        
-        if not chore_to_update:
+
+        if not existing_chore:
             return jsonify({'error': 'Chore not found'}), 404
-        
-        # Update fields if provided
-        if 'name' in data:
-            chore_to_update['name'] = data['name']
-        if 'frequency' in data:
-            if data['frequency'] not in ['daily', 'weekly', 'bi-weekly']:
-                return jsonify({'error': 'Invalid frequency'}), 400
-            chore_to_update['frequency'] = data['frequency']
-        if 'type' in data:
-            if data['type'] not in ['predefined', 'random']:
-                return jsonify({'error': 'Invalid type'}), 400
-            chore_to_update['type'] = data['type']
-        if 'points' in data:
-            if not isinstance(data['points'], int) or data['points'] < 1:
-                return jsonify({'error': 'Points must be a positive integer'}), 400
-            chore_to_update['points'] = data['points']
-        
-        data_handler.save_chores(chores)
-        return jsonify(chore_to_update)
-        
+
+        # Build updated chore dict with all required fields
+        updated_chore = {
+            'id': chore_id,
+            'name': data.get('name', existing_chore['name']),
+            'frequency': data.get('frequency', existing_chore['frequency']),
+            'type': data.get('type', existing_chore['type']),
+            'points': data.get('points', existing_chore['points']),
+            'sub_chores': existing_chore.get('sub_chores', [])
+        }
+
+        # Use the proper update method instead of save_chores
+        result = data_handler.update_chore(chore_id, updated_chore)
+        return jsonify(result)
+
+    except ValueError as e:
+        app.logger.error(f"Validation error updating chore {chore_id}: {e}")
+        return jsonify({'error': str(e)}), 404
     except Exception as e:
-        print(f"Error updating chore: {e}")
-        return jsonify({'error': 'Failed to update chore'}), 500
+        app.logger.error(f"Error updating chore {chore_id}: {e}", exc_info=True)
+        return jsonify({'error': f'Failed to update chore: {str(e)}'}), 500
 
 @app.route('/api/chores/<int:chore_id>', methods=['DELETE'])
 @login_required
