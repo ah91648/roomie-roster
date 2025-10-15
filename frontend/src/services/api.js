@@ -102,6 +102,11 @@ export const shoppingListAPI = {
   getMetadata: () => api.get('/shopping-list/metadata'),
   clearAllHistory: () => api.post('/shopping-list/clear-all-history'),
   clearHistoryFromDate: (fromDate) => api.post('/shopping-list/clear-history-from-date', { from_date: fromDate }),
+  // Category management
+  getCategories: () => api.get('/shopping-list/categories'),
+  createCategory: (categoryName) => api.post('/shopping-list/categories', { category_name: categoryName }),
+  deleteCategory: (categoryName) => api.delete(`/shopping-list/categories/${encodeURIComponent(categoryName)}`),
+  getByCategory: (status = null) => api.get(`/shopping-list/by-category${status ? `?status=${status}` : ''}`),
 };
 
 // Request API
