@@ -596,6 +596,7 @@ def add_shopping_item():
             'estimated_price': data.get('estimated_price'),
             'actual_price': None,
             'brand_preference': data.get('brand_preference', '').strip() or None,
+            'category': data.get('category', 'General'),
             'added_by': data['added_by'],
             'added_by_name': data['added_by_name'],
             'purchased_by': None,
@@ -783,6 +784,81 @@ def clear_purchase_history_from_date():
     except Exception as e:
         print(f"Error clearing purchase history from date: {e}")
         return jsonify({'error': 'Failed to clear purchase history'}), 500
+
+# Shopping categories endpoints
+@app.route('/api/shopping-list/categories', methods=['GET'])
+def get_shopping_categories():
+    """Get all shopping categories."""
+    try:
+        categories = data_handler.get_shopping_categories()
+        return jsonify({'categories': categories}), 200
+    except Exception as e:
+        app.logger.error(f"Error getting shopping categories: {e}")
+        return jsonify({'error': 'Failed to get shopping categories'}), 500
+
+@app.route('/api/shopping-list/categories', methods=['POST'])
+@login_required
+def add_shopping_category():
+    """Add a new shopping category."""
+    try:
+        data = request.get_json()
+
+        if not data or 'category_name' not in data:
+            return jsonify({'error': 'Missing required field: category_name'}), 400
+
+        category_name = data['category_name'].strip()
+        if not category_name:
+            return jsonify({'error': 'Category name cannot be empty'}), 400
+
+        # Validate category name length
+        if len(category_name) > 100:
+            return jsonify({'error': 'Category name must be 100 characters or less'}), 400
+
+        categories = data_handler.add_shopping_category(category_name)
+        return jsonify({
+            'message': f'Category "{category_name}" added successfully',
+            'categories': categories
+        }), 201
+    except Exception as e:
+        app.logger.error(f"Error adding shopping category: {e}")
+        return jsonify({'error': 'Failed to add shopping category'}), 500
+
+@app.route('/api/shopping-list/categories/<category_name>', methods=['DELETE'])
+@login_required
+def delete_shopping_category(category_name):
+    """Delete a shopping category."""
+    try:
+        categories = data_handler.delete_shopping_category(category_name)
+        return jsonify({
+            'message': f'Category "{category_name}" deleted successfully',
+            'categories': categories
+        }), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Error deleting shopping category: {e}")
+        return jsonify({'error': 'Failed to delete shopping category'}), 500
+
+@app.route('/api/shopping-list/by-category', methods=['GET'])
+def get_shopping_list_by_category():
+    """Get shopping list items grouped by category with totals."""
+    try:
+        status_filter = request.args.get('status')  # optional: 'active', 'purchased'
+
+        categorized_items = data_handler.get_shopping_list_by_category()
+
+        # Apply status filter if provided
+        if status_filter:
+            for category in categorized_items:
+                if status_filter == 'active':
+                    categorized_items[category]['items'] = categorized_items[category]['active_items']
+                elif status_filter == 'purchased':
+                    categorized_items[category]['items'] = categorized_items[category]['purchased_items']
+
+        return jsonify({'categories': categorized_items}), 200
+    except Exception as e:
+        app.logger.error(f"Error getting shopping list by category: {e}")
+        return jsonify({'error': 'Failed to get shopping list by category'}), 500
 
 # Request endpoints
 @app.route('/api/requests', methods=['GET'])

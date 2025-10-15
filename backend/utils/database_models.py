@@ -130,29 +130,32 @@ class Assignment(Base):
 class ApplicationState(Base):
     """Application state model for state.json data"""
     __tablename__ = 'application_state'
-    
+
     id = Column(Integer, primary_key=True)
     last_run_date = Column(DateTime, nullable=True)
     predefined_chore_states = Column(JSON, default=dict)  # {chore_id: last_assigned_roommate_id}
     global_predefined_rotation = Column(Integer, default=0)
+    shopping_categories = Column(JSON, default=list)  # List of custom shopping categories
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary matching JSON structure"""
         return {
             'last_run_date': self.last_run_date.isoformat() if self.last_run_date else None,
             'predefined_chore_states': self.predefined_chore_states or {},
-            'global_predefined_rotation': self.global_predefined_rotation
+            'global_predefined_rotation': self.global_predefined_rotation,
+            'shopping_categories': self.shopping_categories or ['General']
         }
 
 class ShoppingItem(Base):
     """Shopping list item model corresponding to shopping_list.json"""
     __tablename__ = 'shopping_items'
-    
+
     id = Column(Integer, primary_key=True)
     item_name = Column(String(200), nullable=False)
     estimated_price = Column(Float, nullable=True)
     actual_price = Column(Float, nullable=True)
     brand_preference = Column(String(100), nullable=True)
+    category = Column(String(100), default='General', nullable=False)  # Category for organizing items
     added_by = Column(Integer, ForeignKey('roommates.id'), nullable=False)
     added_by_name = Column(String(100), nullable=False)
     purchased_by = Column(Integer, ForeignKey('roommates.id'), nullable=True)
@@ -174,6 +177,7 @@ class ShoppingItem(Base):
             'estimated_price': self.estimated_price,
             'actual_price': self.actual_price,
             'brand_preference': self.brand_preference,
+            'category': self.category,
             'added_by': self.added_by,
             'added_by_name': self.added_by_name,
             'purchased_by': self.purchased_by,

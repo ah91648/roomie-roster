@@ -489,7 +489,73 @@ class DataHandler:
                 'purchased_items': 0,
                 'timestamp': datetime.now().isoformat()
             }
-    
+
+    # Shopping categories operations
+    def get_shopping_categories(self) -> List[str]:
+        """Get all shopping categories."""
+        state = self.get_state()
+        return state.get('shopping_categories', ['General'])
+
+    def add_shopping_category(self, category_name: str) -> List[str]:
+        """Add a new shopping category."""
+        state = self.get_state()
+        categories = state.get('shopping_categories', ['General'])
+        if category_name not in categories:
+            categories.append(category_name)
+            state['shopping_categories'] = categories
+            self.save_state(state)
+        return categories
+
+    def delete_shopping_category(self, category_name: str) -> List[str]:
+        """Delete a shopping category. Items in this category will be moved to 'General'."""
+        if category_name == 'General':
+            raise ValueError("Cannot delete the 'General' category")
+
+        # Move all items from this category to 'General'
+        items = self.get_shopping_list()
+        for item in items:
+            if item.get('category') == category_name:
+                item['category'] = 'General'
+        self.save_shopping_list(items)
+
+        # Remove category from list
+        state = self.get_state()
+        categories = state.get('shopping_categories', ['General'])
+        if category_name in categories:
+            categories.remove(category_name)
+            state['shopping_categories'] = categories
+            self.save_state(state)
+        return categories
+
+    def get_shopping_list_by_category(self) -> Dict[str, Dict]:
+        """Get shopping list items grouped by category with totals."""
+        items = self.get_shopping_list()
+        categories = self.get_shopping_categories()
+
+        result = {}
+        for category in categories:
+            category_items = [item for item in items if item.get('category', 'General') == category]
+
+            active_items = [item for item in category_items if item.get('status') == 'active']
+            purchased_items = [item for item in category_items if item.get('status') == 'purchased']
+
+            total_active = sum(item.get('estimated_price', 0) or 0 for item in active_items)
+            total_purchased = sum(item.get('actual_price', 0) or item.get('estimated_price', 0) or 0
+                                 for item in purchased_items)
+
+            result[category] = {
+                'items': category_items,
+                'active_items': active_items,
+                'purchased_items': purchased_items,
+                'total_active': round(total_active, 2),
+                'total_purchased': round(total_purchased, 2),
+                'item_count': len(category_items),
+                'active_count': len(active_items),
+                'purchased_count': len(purchased_items)
+            }
+
+        return result
+
     # Request management methods
     def get_requests(self) -> List[Dict]:
         """Get all requests."""
