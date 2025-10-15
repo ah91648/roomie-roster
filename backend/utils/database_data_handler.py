@@ -12,6 +12,7 @@ from typing import Dict, List, Any, Optional
 from pathlib import Path
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import or_, and_
+from sqlalchemy.orm.attributes import flag_modified
 
 from .database_config import db, database_config
 from .database_models import (
@@ -1001,6 +1002,8 @@ class DatabaseDataHandler:
                     current_categories.append(category_name)
                     # Create new list instance to trigger SQLAlchemy change detection
                     app_state.shopping_categories = list(current_categories)
+                    # Explicitly mark the JSONB column as modified for SQLAlchemy
+                    flag_modified(app_state, 'shopping_categories')
                     db.session.commit()
 
                 return app_state.shopping_categories
@@ -1050,6 +1053,8 @@ class DatabaseDataHandler:
                         current_categories[idx] = new_name
                         # Create new list instance to trigger SQLAlchemy change detection
                         app_state.shopping_categories = list(current_categories)
+                        # Explicitly mark the JSONB column as modified for SQLAlchemy
+                        flag_modified(app_state, 'shopping_categories')
 
                 db.session.commit()
                 return app_state.shopping_categories if app_state else ['General']
@@ -1099,6 +1104,8 @@ class DatabaseDataHandler:
                         current_categories.remove(category_name)
                         # Create new list instance to trigger SQLAlchemy change detection
                         app_state.shopping_categories = list(current_categories)
+                        # Explicitly mark the JSONB column as modified for SQLAlchemy
+                        flag_modified(app_state, 'shopping_categories')
 
                 db.session.commit()
                 return app_state.shopping_categories if app_state else ['General']
