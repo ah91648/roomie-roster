@@ -210,6 +210,16 @@ const ShoppingListManager = () => {
     }
   };
 
+  const handleRenameCategory = async (oldName, newName) => {
+    try {
+      const response = await shoppingListAPI.renameCategory(oldName, newName);
+      setCategories(response.data.categories);
+      await loadCategorizedItems();
+    } catch (err) {
+      throw err;
+    }
+  };
+
   const handleDeleteCategory = async (categoryName) => {
     try {
       const response = await shoppingListAPI.deleteCategory(categoryName);
@@ -566,6 +576,7 @@ const ShoppingListManager = () => {
       <CategoryManager
         categories={categories}
         onAddCategory={handleAddCategory}
+        onRenameCategory={handleRenameCategory}
         onRefresh={loadCategories}
       />
 

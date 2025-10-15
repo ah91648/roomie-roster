@@ -506,6 +506,39 @@ class DataHandler:
             self.save_state(state)
         return categories
 
+    def rename_shopping_category(self, old_name: str, new_name: str) -> List[str]:
+        """Rename a shopping category and update all items."""
+        if old_name == 'General':
+            raise ValueError("Cannot rename the 'General' category")
+
+        new_name = new_name.strip()
+        if not new_name:
+            raise ValueError("New category name cannot be empty")
+
+        if len(new_name) > 100:
+            raise ValueError("Category name must be 100 characters or less")
+
+        # Check if new name already exists
+        state = self.get_state()
+        categories = state.get('shopping_categories', ['General'])
+        if new_name in categories and new_name != old_name:
+            raise ValueError(f"Category '{new_name}' already exists")
+
+        # Update all items
+        items = self.get_shopping_list()
+        for item in items:
+            if item.get('category') == old_name:
+                item['category'] = new_name
+        self.save_shopping_list(items)
+
+        # Update category in list
+        if old_name in categories:
+            idx = categories.index(old_name)
+            categories[idx] = new_name
+            state['shopping_categories'] = categories
+            self.save_state(state)
+        return categories
+
     def delete_shopping_category(self, category_name: str) -> List[str]:
         """Delete a shopping category. Items in this category will be moved to 'General'."""
         if category_name == 'General':

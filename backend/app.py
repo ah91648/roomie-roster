@@ -823,6 +823,31 @@ def add_shopping_category():
         app.logger.error(f"Error adding shopping category: {e}")
         return jsonify({'error': 'Failed to add shopping category'}), 500
 
+@app.route('/api/shopping-list/categories/<category_name>', methods=['PUT'])
+@login_required
+def rename_shopping_category(category_name):
+    """Rename a shopping category."""
+    try:
+        data = request.get_json()
+
+        if not data or 'new_name' not in data:
+            return jsonify({'error': 'Missing required field: new_name'}), 400
+
+        new_name = data['new_name'].strip()
+        if not new_name:
+            return jsonify({'error': 'New category name cannot be empty'}), 400
+
+        categories = data_handler.rename_shopping_category(category_name, new_name)
+        return jsonify({
+            'message': f'Category "{category_name}" renamed to "{new_name}" successfully',
+            'categories': categories
+        }), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Error renaming shopping category: {e}")
+        return jsonify({'error': 'Failed to rename shopping category'}), 500
+
 @app.route('/api/shopping-list/categories/<category_name>', methods=['DELETE'])
 @login_required
 def delete_shopping_category(category_name):

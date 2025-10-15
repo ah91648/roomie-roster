@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 
-const CategoryManager = ({ categories, onAddCategory, onRefresh }) => {
+const CategoryManager = ({ categories, onAddCategory, onRenameCategory, onRefresh }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [error, setError] = useState('');
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [editName, setEditName] = useState('');
 
   const handleAddCategory = async () => {
     const trimmedName = newCategoryName.trim();
@@ -36,17 +38,68 @@ const CategoryManager = ({ categories, onAddCategory, onRefresh }) => {
     }
   };
 
+  const handleRenameCategory = async (oldName) => {
+    const trimmedName = editName.trim();
+
+    if (!trimmedName) {
+      setError('Category name cannot be empty');
+      return;
+    }
+
+    if (trimmedName.length > 100) {
+      setError('Category name must be 100 characters or less');
+      return;
+    }
+
+    if (categories.includes(trimmedName) && trimmedName !== oldName) {
+      setError('This category already exists');
+      return;
+    }
+
+    try {
+      await onRenameCategory(oldName, trimmedName);
+      setEditingCategory(null);
+      setEditName('');
+      setError('');
+      if (onRefresh) {
+        onRefresh();
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to rename category');
+    }
+  };
+
+  const startEdit = (category) => {
+    setEditingCategory(category);
+    setEditName(category);
+    setError('');
+  };
+
+  const cancelEdit = () => {
+    setEditingCategory(null);
+    setEditName('');
+    setError('');
+  };
+
   const handleCancel = () => {
     setIsAdding(false);
     setNewCategoryName('');
     setError('');
   };
 
-  const handleKeyPress = (e) => {
+  const handleKeyPress = (e, category = null) => {
     if (e.key === 'Enter') {
-      handleAddCategory();
+      if (category) {
+        handleRenameCategory(category);
+      } else {
+        handleAddCategory();
+      }
     } else if (e.key === 'Escape') {
-      handleCancel();
+      if (category) {
+        cancelEdit();
+      } else {
+        handleCancel();
+      }
     }
   };
 
@@ -85,26 +138,101 @@ const CategoryManager = ({ categories, onAddCategory, onRefresh }) => {
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: isAdding ? '16px' : '0' }}>
         {categories.map((category) => (
-          <span
-            key={category}
-            style={{
-              padding: '6px 12px',
-              backgroundColor: category === 'General' ? '#007bff' : '#6c757d',
-              color: 'white',
-              borderRadius: '16px',
-              fontSize: '14px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            {category}
-            {category === 'General' && (
-              <span style={{ fontSize: '10px', opacity: 0.8 }}>(default)</span>
+          <div key={category}>
+            {editingCategory === category ? (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => {
+                    setEditName(e.target.value);
+                    setError('');
+                  }}
+                  onKeyDown={(e) => handleKeyPress(e, category)}
+                  autoFocus
+                  style={{
+                    padding: '6px 8px',
+                    border: error ? '2px solid #dc3545' : '1px solid #ced4da',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    width: '150px'
+                  }}
+                />
+                <button
+                  onClick={() => handleRenameCategory(category)}
+                  style={{
+                    padding: '4px 8px',
+                    backgroundColor: '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px'
+                  }}
+                  title="Save"
+                >
+                  ✓
+                </button>
+                <button
+                  onClick={cancelEdit}
+                  style={{
+                    padding: '4px 8px',
+                    backgroundColor: '#dc3545',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px'
+                  }}
+                  title="Cancel"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <span
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: category === 'General' ? '#007bff' : '#6c757d',
+                  color: 'white',
+                  borderRadius: '16px',
+                  fontSize: '14px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {category}
+                {category === 'General' ? (
+                  <span style={{ fontSize: '10px', opacity: 0.8 }}>(default)</span>
+                ) : (
+                  <button
+                    onClick={() => startEdit(category)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'white',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      padding: '0 4px',
+                      opacity: 0.8
+                    }}
+                    title="Rename category"
+                  >
+                    ✏️
+                  </button>
+                )}
+              </span>
             )}
-          </span>
+          </div>
         ))}
       </div>
+
+      {error && editingCategory && (
+        <div style={{ color: '#dc3545', fontSize: '12px', marginTop: '8px', marginBottom: '8px' }}>
+          {error}
+        </div>
+      )}
 
       {isAdding && (
         <div
@@ -126,7 +254,7 @@ const CategoryManager = ({ categories, onAddCategory, onRefresh }) => {
                   setNewCategoryName(e.target.value);
                   setError('');
                 }}
-                onKeyDown={handleKeyPress}
+                onKeyDown={(e) => handleKeyPress(e)}
                 placeholder="e.g., Groceries, Furniture, Electronics..."
                 autoFocus
                 style={{

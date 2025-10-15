@@ -105,6 +105,7 @@ export const shoppingListAPI = {
   // Category management
   getCategories: () => api.get('/shopping-list/categories'),
   createCategory: (categoryName) => api.post('/shopping-list/categories', { category_name: categoryName }),
+  renameCategory: (oldName, newName) => api.put(`/shopping-list/categories/${encodeURIComponent(oldName)}`, { new_name: newName }),
   deleteCategory: (categoryName) => api.delete(`/shopping-list/categories/${encodeURIComponent(categoryName)}`),
   getByCategory: (status = null) => api.get(`/shopping-list/by-category${status ? `?status=${status}` : ''}`),
 };

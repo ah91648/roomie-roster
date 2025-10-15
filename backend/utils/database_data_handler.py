@@ -999,7 +999,8 @@ class DatabaseDataHandler:
                 current_categories = app_state.shopping_categories or ['General']
                 if category_name not in current_categories:
                     current_categories.append(category_name)
-                    app_state.shopping_categories = current_categories
+                    # Create new list instance to trigger SQLAlchemy change detection
+                    app_state.shopping_categories = list(current_categories)
                     db.session.commit()
 
                 return app_state.shopping_categories
@@ -1012,6 +1013,68 @@ class DatabaseDataHandler:
             categories = state.get('shopping_categories', ['General'])
             if category_name not in categories:
                 categories.append(category_name)
+                state['shopping_categories'] = categories
+                self.save_state(state)
+            return categories
+
+    def rename_shopping_category(self, old_name: str, new_name: str) -> List[str]:
+        """Rename a shopping category and update all items."""
+        if old_name == 'General':
+            raise ValueError("Cannot rename the 'General' category")
+
+        new_name = new_name.strip()
+        if not new_name:
+            raise ValueError("New category name cannot be empty")
+
+        if len(new_name) > 100:
+            raise ValueError("Category name must be 100 characters or less")
+
+        if self.use_database:
+            try:
+                # Check if new name already exists
+                app_state = ApplicationState.query.first()
+                if app_state and app_state.shopping_categories:
+                    if new_name in app_state.shopping_categories and new_name != old_name:
+                        raise ValueError(f"Category '{new_name}' already exists")
+
+                # Update all items with this category
+                items = ShoppingItem.query.filter_by(category=old_name).all()
+                for item in items:
+                    item.category = new_name
+
+                # Update category in list
+                if app_state and app_state.shopping_categories:
+                    current_categories = app_state.shopping_categories
+                    if old_name in current_categories:
+                        idx = current_categories.index(old_name)
+                        current_categories[idx] = new_name
+                        # Create new list instance to trigger SQLAlchemy change detection
+                        app_state.shopping_categories = list(current_categories)
+
+                db.session.commit()
+                return app_state.shopping_categories if app_state else ['General']
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error renaming shopping category: {e}")
+                db.session.rollback()
+                raise
+        else:
+            # Check if new name already exists
+            state = self.get_state()
+            categories = state.get('shopping_categories', ['General'])
+            if new_name in categories and new_name != old_name:
+                raise ValueError(f"Category '{new_name}' already exists")
+
+            # Update all items
+            items = self.get_shopping_list()
+            for item in items:
+                if item.get('category') == old_name:
+                    item['category'] = new_name
+            self.save_shopping_list(items)
+
+            # Update category in list
+            if old_name in categories:
+                idx = categories.index(old_name)
+                categories[idx] = new_name
                 state['shopping_categories'] = categories
                 self.save_state(state)
             return categories
@@ -1034,7 +1097,8 @@ class DatabaseDataHandler:
                     current_categories = app_state.shopping_categories
                     if category_name in current_categories:
                         current_categories.remove(category_name)
-                        app_state.shopping_categories = current_categories
+                        # Create new list instance to trigger SQLAlchemy change detection
+                        app_state.shopping_categories = list(current_categories)
 
                 db.session.commit()
                 return app_state.shopping_categories if app_state else ['General']
