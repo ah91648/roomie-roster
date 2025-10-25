@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 const CollapsibleShoppingItem = ({
@@ -8,7 +8,7 @@ const CollapsibleShoppingItem = ({
   onDelete,
   onPurchase
 }) => {
-  const { showRoommateLink } = useAuth();
+  const { showRoommateLink, needsRoommateLink } = useAuth();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
@@ -23,6 +23,29 @@ const CollapsibleShoppingItem = ({
     actual_price: item.estimated_price || '',
     notes: ''
   });
+  const [pendingPurchase, setPendingPurchase] = useState(null);
+
+  // Auto-retry purchase after successful roommate linking
+  useEffect(() => {
+    const retryPendingPurchase = async () => {
+      if (!needsRoommateLink && pendingPurchase) {
+        console.log('Retrying purchase after successful roommate linking...');
+        try {
+          await onPurchase(item.id, pendingPurchase.data);
+          setPendingPurchase(null); // Clear pending purchase on success
+          if (pendingPurchase.isPurchasing) {
+            setIsPurchasing(false);
+          }
+        } catch (error) {
+          console.error('Failed to retry purchase:', error);
+          setPendingPurchase(null); // Clear even on failure to avoid infinite loops
+          alert('Failed to complete purchase: ' + error.message);
+        }
+      }
+    };
+
+    retryPendingPurchase();
+  }, [needsRoommateLink, pendingPurchase, item.id, onPurchase]);
 
   const toggleExpand = () => {
     if (!isEditing && !isPurchasing) {
@@ -66,17 +89,21 @@ const CollapsibleShoppingItem = ({
 
   const handleQuickPurchase = async (e) => {
     e.stopPropagation();
+    const purchasePayload = {
+      actual_price: item.estimated_price || null,
+      notes: null
+    };
+
     try {
       // Quick purchase with estimated price, auto-assigned to logged-in user
-      await onPurchase(item.id, {
-        actual_price: item.estimated_price || null,
-        notes: null
-      });
+      await onPurchase(item.id, purchasePayload);
     } catch (error) {
       // Check if this is a roommate linking error
       if (error.message && (error.message.includes('roommate') || error.message.includes('Roommate'))) {
+        // Store pending purchase to retry after linking
+        setPendingPurchase({ data: purchasePayload, isPurchasing: false });
         showRoommateLink();
-        // Modal will appear automatically - no need for blocking alert
+        // Modal will appear and purchase will auto-retry after successful linking
       } else {
         alert('Failed to mark as purchased: ' + error.message);
       }
@@ -91,8 +118,10 @@ const CollapsibleShoppingItem = ({
     } catch (error) {
       // Check if this is a roommate linking error
       if (error.message && (error.message.includes('roommate') || error.message.includes('Roommate'))) {
+        // Store pending purchase to retry after linking
+        setPendingPurchase({ data: purchaseData, isPurchasing: true });
         showRoommateLink();
-        // Modal will appear automatically - no need for blocking alert
+        // Modal will appear and purchase will auto-retry after successful linking
       } else {
         alert('Failed to mark as purchased: ' + error.message);
       }
