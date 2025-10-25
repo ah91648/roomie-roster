@@ -76,7 +76,7 @@ const CollapsibleShoppingItem = ({
       // Check if this is a roommate linking error
       if (error.message && (error.message.includes('roommate') || error.message.includes('Roommate'))) {
         showRoommateLink();
-        alert('You need to link your account to a roommate profile to purchase items. Please select your roommate from the modal that appeared.');
+        // Modal will appear automatically - no need for blocking alert
       } else {
         alert('Failed to mark as purchased: ' + error.message);
       }
@@ -92,7 +92,7 @@ const CollapsibleShoppingItem = ({
       // Check if this is a roommate linking error
       if (error.message && (error.message.includes('roommate') || error.message.includes('Roommate'))) {
         showRoommateLink();
-        alert('You need to link your account to a roommate profile to purchase items. Please select your roommate from the modal that appeared.');
+        // Modal will appear automatically - no need for blocking alert
       } else {
         alert('Failed to mark as purchased: ' + error.message);
       }
