@@ -18,8 +18,6 @@ const CollapsibleShoppingItem = ({
     notes: item.notes || ''
   });
   const [purchaseData, setPurchaseData] = useState({
-    purchased_by: '',
-    purchased_by_name: '',
     actual_price: item.estimated_price || '',
     notes: ''
   });
@@ -64,12 +62,21 @@ const CollapsibleShoppingItem = ({
     setIsExpanded(true);
   };
 
+  const handleQuickPurchase = async (e) => {
+    e.stopPropagation();
+    try {
+      // Quick purchase with estimated price, auto-assigned to logged-in user
+      await onPurchase(item.id, {
+        actual_price: item.estimated_price || null,
+        notes: null
+      });
+    } catch (error) {
+      alert('Failed to mark as purchased: ' + error.message);
+    }
+  };
+
   const handleCompletePurchase = async (e) => {
     e.stopPropagation();
-    if (!purchaseData.purchased_by || !purchaseData.purchased_by_name) {
-      alert('Please select who bought this item');
-      return;
-    }
     try {
       await onPurchase(item.id, purchaseData);
       setIsPurchasing(false);
@@ -82,8 +89,6 @@ const CollapsibleShoppingItem = ({
     e.stopPropagation();
     setIsPurchasing(false);
     setPurchaseData({
-      purchased_by: '',
-      purchased_by_name: '',
       actual_price: item.estimated_price || '',
       notes: ''
     });
@@ -127,6 +132,53 @@ const CollapsibleShoppingItem = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+          {/* Quick Purchase Checkbox */}
+          {!isPurchased && (
+            <div
+              onClick={handleQuickPurchase}
+              style={{
+                width: '24px',
+                height: '24px',
+                borderRadius: '50%',
+                border: '2px solid #007bff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                backgroundColor: '#fff'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#e7f3ff';
+                e.currentTarget.style.borderColor = '#0056b3';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#fff';
+                e.currentTarget.style.borderColor = '#007bff';
+              }}
+              title="Quick purchase at estimated price"
+            >
+            </div>
+          )}
+          {isPurchased && (
+            <div
+              style={{
+                width: '24px',
+                height: '24px',
+                borderRadius: '50%',
+                border: '2px solid #28a745',
+                backgroundColor: '#28a745',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                fontSize: '16px',
+                fontWeight: 'bold'
+              }}
+            >
+              ✓
+            </div>
+          )}
           <span style={{ fontSize: '18px' }}>
             {isExpanded ? '▼' : '▶'}
           </span>
@@ -235,29 +287,12 @@ const CollapsibleShoppingItem = ({
               </div>
             </div>
           ) : isPurchasing ? (
-            // Purchase Mode
+            // Purchase Mode - Detailed purchase with notes/price
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <h4>Mark as Purchased</h4>
-              <div>
-                <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Who bought this?</label>
-                <select
-                  value={purchaseData.purchased_by}
-                  onChange={(e) => {
-                    const roommate = roommates.find(r => r.id === parseInt(e.target.value));
-                    setPurchaseData({
-                      ...purchaseData,
-                      purchased_by: parseInt(e.target.value),
-                      purchased_by_name: roommate?.name || ''
-                    });
-                  }}
-                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
-                >
-                  <option value="">Select roommate...</option>
-                  {roommates.map(roommate => (
-                    <option key={roommate.id} value={roommate.id}>{roommate.name}</option>
-                  ))}
-                </select>
-              </div>
+              <h4>Mark as Purchased with Details</h4>
+              <p style={{ color: '#666', fontSize: '14px', margin: '0 0 8px 0' }}>
+                This will be automatically assigned to you. Add actual price or notes below.
+              </p>
               <div>
                 <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Actual Price:</label>
                 <input
@@ -266,6 +301,15 @@ const CollapsibleShoppingItem = ({
                   value={purchaseData.actual_price}
                   onChange={(e) => setPurchaseData({ ...purchaseData, actual_price: parseFloat(e.target.value) || '' })}
                   style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Notes (optional):</label>
+                <textarea
+                  value={purchaseData.notes}
+                  onChange={(e) => setPurchaseData({ ...purchaseData, notes: e.target.value })}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', minHeight: '60px' }}
+                  placeholder="Add any notes about this purchase..."
                 />
               </div>
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>

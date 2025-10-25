@@ -23,9 +23,7 @@ const ShoppingListManager = () => {
     estimated_price: '',
     brand_preference: '',
     category: 'General',
-    notes: '',
-    added_by: '',
-    added_by_name: ''
+    notes: ''
   });
 
   useEffect(() => {
@@ -113,9 +111,7 @@ const ShoppingListManager = () => {
       estimated_price: '',
       brand_preference: '',
       category: 'General',
-      notes: '',
-      added_by: '',
-      added_by_name: ''
+      notes: ''
     });
     setShowAddForm(false);
   };
@@ -128,18 +124,9 @@ const ShoppingListManager = () => {
     }));
   };
 
-  const handleRoommateSelect = (roommateId) => {
-    const roommate = roommates.find(r => r.id === parseInt(roommateId));
-    setFormData(prev => ({
-      ...prev,
-      added_by: roommate ? roommate.id : '',
-      added_by_name: roommate ? roommate.name : ''
-    }));
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.item_name.trim() || !formData.added_by) return;
+    if (!formData.item_name.trim()) return;
 
     try {
       setError(null);
@@ -401,52 +388,28 @@ const ShoppingListManager = () => {
         >
           <h3 style={{ marginTop: 0 }}>Add New Item</h3>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                Item Name *
-              </label>
-              <input
-                type="text"
-                name="item_name"
-                value={formData.item_name}
-                onChange={handleInputChange}
-                placeholder="e.g., Paper Towels"
-                required
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  border: '1px solid #ced4da',
-                  borderRadius: '6px',
-                  fontSize: '14px'
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                Added By *
-              </label>
-              <select
-                value={formData.added_by}
-                onChange={(e) => handleRoommateSelect(e.target.value)}
-                required
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  border: '1px solid #ced4da',
-                  borderRadius: '6px',
-                  fontSize: '14px'
-                }}
-              >
-                <option value="">Select roommate...</option>
-                {roommates.map(roommate => (
-                  <option key={roommate.id} value={roommate.id}>
-                    {roommate.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+              Item Name *
+            </label>
+            <input
+              type="text"
+              name="item_name"
+              value={formData.item_name}
+              onChange={handleInputChange}
+              placeholder="e.g., Paper Towels"
+              required
+              style={{
+                width: '100%',
+                padding: '10px',
+                border: '1px solid #ced4da',
+                borderRadius: '6px',
+                fontSize: '14px'
+              }}
+            />
+            <p style={{ fontSize: '12px', color: '#666', marginTop: '4px', marginBottom: 0 }}>
+              This will be automatically assigned to you
+            </p>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>

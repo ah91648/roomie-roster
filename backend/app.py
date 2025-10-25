@@ -574,22 +574,22 @@ def get_shopping_list():
         return jsonify({'error': 'Failed to get shopping list'}), 500
 
 @app.route('/api/shopping-list', methods=['POST'])
-@login_required
+@roommate_required
 def add_shopping_item():
-    """Add a new item to the shopping list."""
+    """Add a new item to the shopping list. Auto-assigns to logged-in user's linked roommate."""
     try:
         data = request.get_json()
-        
+
+        # Get current user's linked roommate from session
+        current_roommate = app.session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to add items'}), 403
+
         # Validate required fields
-        required_fields = ['item_name', 'added_by', 'added_by_name']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
-        
-        if not data['item_name'].strip():
+        if not data.get('item_name') or not data['item_name'].strip():
             return jsonify({'error': 'Item name cannot be empty'}), 400
-        
-        # Create new shopping list item
+
+        # Create new shopping list item with auto-assigned user
         new_item = {
             'id': data_handler.get_next_shopping_item_id(),
             'item_name': data['item_name'].strip(),
@@ -597,8 +597,8 @@ def add_shopping_item():
             'actual_price': None,
             'brand_preference': data.get('brand_preference', '').strip() or None,
             'category': data.get('category', 'General'),
-            'added_by': data['added_by'],
-            'added_by_name': data['added_by_name'],
+            'added_by': current_roommate['id'],  # Auto-assigned from session
+            'added_by_name': current_roommate['name'],  # Auto-assigned from session
             'purchased_by': None,
             'purchased_by_name': None,
             'purchase_date': None,
@@ -606,10 +606,10 @@ def add_shopping_item():
             'status': 'active',
             'date_added': __import__('datetime').datetime.now().isoformat()
         }
-        
+
         data_handler.add_shopping_item(new_item)
         return jsonify(new_item), 201
-        
+
     except Exception as e:
         print(f"Error adding shopping item: {e}")
         return jsonify({'error': 'Failed to add shopping item'}), 500
@@ -676,34 +676,35 @@ def delete_shopping_item(item_id):
         return jsonify({'error': 'Failed to delete shopping item'}), 500
 
 @app.route('/api/shopping-list/<int:item_id>/purchase', methods=['POST'])
-@login_required
+@roommate_required
 def mark_item_purchased(item_id):
-    """Mark a shopping list item as purchased."""
+    """Mark a shopping list item as purchased. Auto-assigns to logged-in user's linked roommate."""
     try:
-        data = request.get_json()
-        
-        # Validate required fields
-        required_fields = ['purchased_by', 'purchased_by_name']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
-        
+        data = request.get_json() or {}
+
+        # Get current user's linked roommate from session
+        current_roommate = app.session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to purchase items'}), 403
+
+        # Extract optional fields (actual_price and notes)
         actual_price = data.get('actual_price')
         notes = data.get('notes', '').strip() or None
-        
+
+        # Mark as purchased with auto-assigned user
         updated_item = data_handler.mark_item_purchased(
             item_id,
-            data['purchased_by'],
-            data['purchased_by_name'],
+            current_roommate['id'],  # Auto-assigned from session
+            current_roommate['name'],  # Auto-assigned from session
             actual_price,
             notes
         )
-        
+
         return jsonify({
             'message': 'Item marked as purchased successfully',
             'item': updated_item
         })
-        
+
     except ValueError as e:
         return jsonify({'error': str(e)}), 404
     except Exception as e:
