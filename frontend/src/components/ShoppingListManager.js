@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { shoppingListAPI, roommateAPI } from '../services/api';
 import CategoryManager from './CategoryManager';
 import CategorySection from './CategorySection';
@@ -148,7 +148,7 @@ const ShoppingListManager = () => {
     }
   };
 
-  const handleUpdateItem = async (itemId, itemData) => {
+  const handleUpdateItem = useCallback(async (itemId, itemData) => {
     try {
       await shoppingListAPI.update(itemId, itemData);
       const metadataResponse = await shoppingListAPI.getMetadata();
@@ -157,9 +157,9 @@ const ShoppingListManager = () => {
     } catch (err) {
       throw new Error('Failed to update item: ' + (err.response?.data?.error || err.message));
     }
-  };
+  }, []);
 
-  const handleDeleteItem = async (itemId) => {
+  const handleDeleteItem = useCallback(async (itemId) => {
     try {
       await shoppingListAPI.delete(itemId);
       const metadataResponse = await shoppingListAPI.getMetadata();
@@ -168,9 +168,9 @@ const ShoppingListManager = () => {
     } catch (err) {
       throw new Error('Failed to delete item: ' + (err.response?.data?.error || err.message));
     }
-  };
+  }, []);
 
-  const handlePurchaseItem = async (itemId, purchaseData) => {
+  const handlePurchaseItem = useCallback(async (itemId, purchaseData) => {
     try {
       const purchasePayload = {
         ...purchaseData,
@@ -184,9 +184,9 @@ const ShoppingListManager = () => {
     } catch (err) {
       throw new Error('Failed to mark as purchased: ' + (err.response?.data?.error || err.message));
     }
-  };
+  }, []);
 
-  const handleAddCategory = async (categoryName) => {
+  const handleAddCategory = useCallback(async (categoryName) => {
     try {
       const response = await shoppingListAPI.createCategory(categoryName);
       setCategories(response.data.categories);
@@ -195,9 +195,9 @@ const ShoppingListManager = () => {
     } catch (err) {
       throw err;
     }
-  };
+  }, []);
 
-  const handleRenameCategory = async (oldName, newName) => {
+  const handleRenameCategory = useCallback(async (oldName, newName) => {
     try {
       const response = await shoppingListAPI.renameCategory(oldName, newName);
       setCategories(response.data.categories);
@@ -205,9 +205,9 @@ const ShoppingListManager = () => {
     } catch (err) {
       throw err;
     }
-  };
+  }, []);
 
-  const handleDeleteCategory = async (categoryName) => {
+  const handleDeleteCategory = useCallback(async (categoryName) => {
     try {
       const response = await shoppingListAPI.deleteCategory(categoryName);
       setCategories(response.data.categories);
@@ -215,7 +215,7 @@ const ShoppingListManager = () => {
     } catch (err) {
       alert('Failed to delete category: ' + (err.response?.data?.error || err.message));
     }
-  };
+  }, []);
 
   if (loading) {
     return (

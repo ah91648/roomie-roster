@@ -284,17 +284,41 @@ export function AuthProvider({ children }) {
   // Link user to roommate
   const linkRoommate = useCallback(async (roommateId) => {
     dispatch({ type: AUTH_ACTIONS.LINK_ROOMMATE_START });
-    
+
     try {
       const response = await authAPI.linkRoommate(roommateId);
       const user = response.data.user;
-      
-      dispatch({
-        type: AUTH_ACTIONS.LINK_ROOMMATE_SUCCESS,
-        payload: { user }
-      });
-      
-      return { success: true, user };
+
+      // CRITICAL FIX: Wait for session cookie to propagate through browser
+      // Without this delay, subsequent requests may use the old session cookie
+      console.log('Roommate linked successfully. Waiting for session propagation...');
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Refresh session to validate cookie update and sync state
+      console.log('Refreshing session to validate roommate linking...');
+      try {
+        const refreshResponse = await authAPI.refreshSession();
+        const refreshedUser = refreshResponse.data.user;
+
+        // Clear CSRF token to force refresh on next request
+        clearTokens();
+
+        dispatch({
+          type: AUTH_ACTIONS.LINK_ROOMMATE_SUCCESS,
+          payload: { user: refreshedUser }
+        });
+
+        console.log('Roommate linking complete. Ready for retry.');
+        return { success: true, user: refreshedUser };
+      } catch (refreshError) {
+        console.error('Session refresh failed after linking:', refreshError);
+        // Still dispatch success with original user data
+        dispatch({
+          type: AUTH_ACTIONS.LINK_ROOMMATE_SUCCESS,
+          payload: { user }
+        });
+        return { success: true, user };
+      }
     } catch (error) {
       console.error('Failed to link roommate:', error);
       const errorMessage = error.response?.data?.error || 'Failed to link roommate';

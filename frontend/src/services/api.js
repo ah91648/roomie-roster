@@ -71,6 +71,12 @@ export const clearTokens = () => {
   csrfToken = null;
 };
 
+// Export function to force CSRF token refresh (for auth state changes)
+export const refreshCSRFToken = async () => {
+  csrfToken = null;
+  return await getCSRFToken();
+};
+
 // Chores API
 export const choreAPI = {
   getAll: () => api.get('/chores'),

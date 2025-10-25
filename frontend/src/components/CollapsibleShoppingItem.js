@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 const CollapsibleShoppingItem = ({
@@ -25,27 +25,59 @@ const CollapsibleShoppingItem = ({
   });
   const [pendingPurchase, setPendingPurchase] = useState(null);
 
+  // Retry safeguards to prevent infinite loops
+  const retryCountRef = useRef(0);
+  const maxRetries = 3;
+
   // Auto-retry purchase after successful roommate linking
   useEffect(() => {
     const retryPendingPurchase = async () => {
       if (!needsRoommateLink && pendingPurchase) {
-        console.log('Retrying purchase after successful roommate linking...');
+        // Check retry limit
+        if (retryCountRef.current >= maxRetries) {
+          console.error('Max retry attempts reached. Purchase failed.');
+          setPendingPurchase(null);
+          if (pendingPurchase.isPurchasing) {
+            setIsPurchasing(false);
+          }
+          alert('Unable to complete purchase after linking. Please try purchasing again manually.');
+          retryCountRef.current = 0; // Reset for next attempt
+          return;
+        }
+
+        retryCountRef.current += 1;
+        console.log(`Retrying purchase after roommate linking (attempt ${retryCountRef.current}/${maxRetries})...`);
+
         try {
           await onPurchase(item.id, pendingPurchase.data);
+          console.log('Purchase completed successfully after roommate linking!');
           setPendingPurchase(null); // Clear pending purchase on success
+          retryCountRef.current = 0; // Reset retry count on success
           if (pendingPurchase.isPurchasing) {
             setIsPurchasing(false);
           }
         } catch (error) {
-          console.error('Failed to retry purchase:', error);
-          setPendingPurchase(null); // Clear even on failure to avoid infinite loops
-          alert('Failed to complete purchase: ' + error.message);
+          console.error(`Retry attempt ${retryCountRef.current} failed:`, error);
+
+          // Check if still a roommate linking error
+          if (error.message && (error.message.includes('roommate') || error.message.includes('Roommate'))) {
+            console.log('Still needs roommate linking, will retry after next link...');
+            // Keep pendingPurchase for another retry
+          } else {
+            // Different error, clear pending and show to user
+            setPendingPurchase(null);
+            retryCountRef.current = 0;
+            if (pendingPurchase.isPurchasing) {
+              setIsPurchasing(false);
+            }
+            alert('Failed to complete purchase: ' + error.message);
+          }
         }
       }
     };
 
     retryPendingPurchase();
-  }, [needsRoommateLink, pendingPurchase, item.id, onPurchase]);
+  }, [needsRoommateLink, pendingPurchase, item.id, onPurchase, maxRetries]);
 
   const toggleExpand = () => {
     if (!isEditing && !isPurchasing) {
@@ -100,6 +132,8 @@ const CollapsibleShoppingItem = ({
     } catch (error) {
       // Check if this is a roommate linking error
       if (error.message && (error.message.includes('roommate') || error.message.includes('Roommate'))) {
+        // Reset retry count for new purchase attempt
+        retryCountRef.current = 0;
         // Store pending purchase to retry after linking
         setPendingPurchase({ data: purchasePayload, isPurchasing: false });
         showRoommateLink();
@@ -118,6 +152,8 @@ const CollapsibleShoppingItem = ({
     } catch (error) {
       // Check if this is a roommate linking error
       if (error.message && (error.message.includes('roommate') || error.message.includes('Roommate'))) {
+        // Reset retry count for new purchase attempt
+        retryCountRef.current = 0;
         // Store pending purchase to retry after linking
         setPendingPurchase({ data: purchaseData, isPurchasing: true });
         showRoommateLink();
