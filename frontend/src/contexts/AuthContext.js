@@ -18,6 +18,7 @@ const AUTH_ACTIONS = {
   LINK_ROOMMATE_START: 'LINK_ROOMMATE_START',
   LINK_ROOMMATE_SUCCESS: 'LINK_ROOMMATE_SUCCESS',
   LINK_ROOMMATE_ERROR: 'LINK_ROOMMATE_ERROR',
+  SHOW_ROOMMATE_LINK: 'SHOW_ROOMMATE_LINK',
   REFRESH_USER: 'REFRESH_USER',
   CLEAR_ERROR: 'CLEAR_ERROR'
 };
@@ -137,6 +138,12 @@ function authReducer(state, action) {
         error: action.payload
       };
     
+    case AUTH_ACTIONS.SHOW_ROOMMATE_LINK:
+      return {
+        ...state,
+        needsRoommateLink: true
+      };
+
     case AUTH_ACTIONS.REFRESH_USER:
       return {
         ...state,
@@ -144,13 +151,13 @@ function authReducer(state, action) {
         isAuthenticated: !!action.payload.user,
         needsRoommateLink: action.payload.user && !action.payload.user.roommate
       };
-    
+
     case AUTH_ACTIONS.CLEAR_ERROR:
       return {
         ...state,
         error: null
       };
-    
+
     default:
       return state;
   }
@@ -380,11 +387,16 @@ export function AuthProvider({ children }) {
     dispatch({ type: AUTH_ACTIONS.CLEAR_ERROR });
   }, []);
 
+  // Trigger roommate linking modal
+  const showRoommateLink = useCallback(() => {
+    dispatch({ type: AUTH_ACTIONS.SHOW_ROOMMATE_LINK });
+  }, []);
+
   // Context value
   const value = {
     // State
     ...state,
-    
+
     // Actions
     loginWithGoogle,
     handleOAuthCallback,
@@ -394,7 +406,8 @@ export function AuthProvider({ children }) {
     logout,
     revokeAccess,
     clearError,
-    
+    showRoommateLink,
+
     // Computed values
     hasRoommate: state.user && state.user.roommate,
     isConfigured: state.authStatus && state.authStatus.credentials_configured

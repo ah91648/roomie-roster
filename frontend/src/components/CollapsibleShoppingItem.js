@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 
 const CollapsibleShoppingItem = ({
   item,
@@ -7,6 +8,7 @@ const CollapsibleShoppingItem = ({
   onDelete,
   onPurchase
 }) => {
+  const { showRoommateLink } = useAuth();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
@@ -71,7 +73,13 @@ const CollapsibleShoppingItem = ({
         notes: null
       });
     } catch (error) {
-      alert('Failed to mark as purchased: ' + error.message);
+      // Check if this is a roommate linking error
+      if (error.message && (error.message.includes('roommate') || error.message.includes('Roommate'))) {
+        showRoommateLink();
+        alert('You need to link your account to a roommate profile to purchase items. Please select your roommate from the modal that appeared.');
+      } else {
+        alert('Failed to mark as purchased: ' + error.message);
+      }
     }
   };
 
@@ -81,7 +89,13 @@ const CollapsibleShoppingItem = ({
       await onPurchase(item.id, purchaseData);
       setIsPurchasing(false);
     } catch (error) {
-      alert('Failed to mark as purchased: ' + error.message);
+      // Check if this is a roommate linking error
+      if (error.message && (error.message.includes('roommate') || error.message.includes('Roommate'))) {
+        showRoommateLink();
+        alert('You need to link your account to a roommate profile to purchase items. Please select your roommate from the modal that appeared.');
+      } else {
+        alert('Failed to mark as purchased: ' + error.message);
+      }
     }
   };
 
