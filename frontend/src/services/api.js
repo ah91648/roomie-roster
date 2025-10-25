@@ -179,6 +179,7 @@ export const authAPI = {
   initiateGoogleLogin: (redirectUri) => api.post('/auth/google-login', { redirect_uri: redirectUri }),
   getProfile: () => api.get('/auth/profile'),
   refreshSession: () => api.post('/auth/refresh'),
+  verifyRoommateLink: () => api.get('/auth/verify-roommate-link'),
   linkRoommate: (roommateId) => api.post('/auth/link-roommate', { roommate_id: roommateId }),
   unlinkRoommate: () => api.post('/auth/unlink-roommate'),
   logout: () => api.post('/auth/logout'),

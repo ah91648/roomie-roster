@@ -684,7 +684,16 @@ def mark_item_purchased(item_id):
 
         # Get current user's linked roommate from session
         current_roommate = app.session_manager.get_current_roommate()
+
+        # Enhanced logging for diagnostics (especially for debugging 403 errors)
+        current_user = app.session_manager.get_current_user()
+        print(f"[PURCHASE] Item ID: {item_id}")
+        print(f"[PURCHASE] Current user: {current_user.get('email') if current_user else 'None'}")
+        print(f"[PURCHASE] Current roommate: {current_roommate.get('name') if current_roommate else 'None'}")
+        print(f"[PURCHASE] Session authenticated: {app.session_manager.is_authenticated()}")
+
         if not current_roommate:
+            print(f"[PURCHASE ERROR] No roommate linked for user {current_user.get('email') if current_user else 'Unknown'}")
             return jsonify({'error': 'You must be linked to a roommate to purchase items'}), 403
 
         # Extract optional fields (actual_price and notes)
@@ -2255,6 +2264,31 @@ def link_user_to_roommate():
     except Exception as e:
         print(f"Error linking roommate: {e}")
         return jsonify({'error': 'Failed to link roommate'}), 500
+
+@app.route('/api/auth/verify-roommate-link', methods=['GET'])
+@login_required
+def verify_roommate_link():
+    """Safely verify if roommate is linked without clearing session on failure."""
+    try:
+        user = session_manager.get_current_user()
+        current_roommate = session_manager.get_current_roommate()
+        has_roommate = current_roommate is not None
+
+        # Enhanced logging for diagnostics
+        print(f"[VERIFY] Session user: {user.get('email') if user else 'None'}")
+        print(f"[VERIFY] Has roommate: {has_roommate}")
+        if current_roommate:
+            print(f"[VERIFY] Roommate: {current_roommate.get('name')} (ID: {current_roommate.get('id')})")
+
+        return jsonify({
+            'user': user,
+            'has_roommate': has_roommate,
+            'roommate': current_roommate,
+            'message': 'Roommate link verified' if has_roommate else 'No roommate linked'
+        })
+    except Exception as e:
+        print(f"Error verifying roommate link: {e}")
+        return jsonify({'error': 'Failed to verify roommate link'}), 500
 
 @app.route('/api/auth/unlink-roommate', methods=['POST'])
 @login_required

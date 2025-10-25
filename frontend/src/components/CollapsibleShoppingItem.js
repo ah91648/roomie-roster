@@ -33,38 +33,48 @@ const CollapsibleShoppingItem = ({
   useEffect(() => {
     const retryPendingPurchase = async () => {
       if (!needsRoommateLink && pendingPurchase) {
+        console.log('[RETRY] Auto-retry triggered. needsRoommateLink:', needsRoommateLink);
+        console.log('[RETRY] Pending purchase data:', pendingPurchase.data);
+        console.log('[RETRY] Current retry count:', retryCountRef.current, '/', maxRetries);
+
         // Check retry limit
         if (retryCountRef.current >= maxRetries) {
-          console.error('Max retry attempts reached. Purchase failed.');
+          console.error('[RETRY ERROR] Max retry attempts reached. Purchase failed.');
           setPendingPurchase(null);
           if (pendingPurchase.isPurchasing) {
             setIsPurchasing(false);
           }
-          alert('Unable to complete purchase after linking. Please try purchasing again manually.');
+          alert('Unable to complete purchase after linking roommate. Please try purchasing the item again manually.');
           retryCountRef.current = 0; // Reset for next attempt
           return;
         }
 
         retryCountRef.current += 1;
-        console.log(`Retrying purchase after roommate linking (attempt ${retryCountRef.current}/${maxRetries})...`);
+        console.log(`[RETRY] Attempt ${retryCountRef.current}/${maxRetries}: Calling onPurchase for item ${item.id}...`);
 
         try {
           await onPurchase(item.id, pendingPurchase.data);
-          console.log('Purchase completed successfully after roommate linking!');
+          console.log('[RETRY SUCCESS] Purchase completed successfully after roommate linking!');
           setPendingPurchase(null); // Clear pending purchase on success
           retryCountRef.current = 0; // Reset retry count on success
           if (pendingPurchase.isPurchasing) {
             setIsPurchasing(false);
           }
         } catch (error) {
-          console.error(`Retry attempt ${retryCountRef.current} failed:`, error);
+          console.error(`[RETRY ERROR] Attempt ${retryCountRef.current} failed:`, error);
+          console.error('[RETRY ERROR] Error details:', {
+            message: error.message,
+            status: error.response?.status,
+            data: error.response?.data
+          });
 
           // Check if still a roommate linking error
           if (error.message && (error.message.includes('roommate') || error.message.includes('Roommate'))) {
-            console.log('Still needs roommate linking, will retry after next link...');
+            console.log('[RETRY] Still needs roommate linking, will retry after next link...');
             // Keep pendingPurchase for another retry
           } else {
             // Different error, clear pending and show to user
+            console.error('[RETRY ERROR] Non-roommate error encountered, aborting retry.');
             setPendingPurchase(null);
             retryCountRef.current = 0;
             if (pendingPurchase.isPurchasing) {
@@ -73,6 +83,8 @@ const CollapsibleShoppingItem = ({
             alert('Failed to complete purchase: ' + error.message);
           }
         }
+      } else if (pendingPurchase) {
+        console.log('[RETRY] Pending purchase exists but needsRoommateLink is still true. Waiting...');
       }
     };
 

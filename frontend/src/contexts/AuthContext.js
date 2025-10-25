@@ -286,32 +286,49 @@ export function AuthProvider({ children }) {
     dispatch({ type: AUTH_ACTIONS.LINK_ROOMMATE_START });
 
     try {
+      console.log('[LINK] Step 1: Calling linkRoommate API...');
       const response = await authAPI.linkRoommate(roommateId);
       const user = response.data.user;
+      console.log('[LINK] Step 2: Link API succeeded, user:', user?.email);
 
       // CRITICAL FIX: Wait for session cookie to propagate through browser
-      // Without this delay, subsequent requests may use the old session cookie
-      console.log('Roommate linked successfully. Waiting for session propagation...');
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Increased from 300ms to 800ms for better reliability in production
+      console.log('[LINK] Step 3: Waiting 800ms for session cookie propagation...');
+      await new Promise(resolve => setTimeout(resolve, 800));
 
-      // Refresh session to validate cookie update and sync state
-      console.log('Refreshing session to validate roommate linking...');
+      // Verify session using SAFE endpoint that doesn't clear session on failure
+      // This replaces the dangerous refreshSession() call that could wipe out the session
+      console.log('[LINK] Step 4: Verifying roommate link (safe check)...');
       try {
-        const refreshResponse = await authAPI.refreshSession();
-        const refreshedUser = refreshResponse.data.user;
+        const verifyResponse = await authAPI.verifyRoommateLink();
+        const verifiedUser = verifyResponse.data.user;
+        const hasRoommate = verifyResponse.data.has_roommate;
 
-        // Clear CSRF token to force refresh on next request
-        clearTokens();
-
-        dispatch({
-          type: AUTH_ACTIONS.LINK_ROOMMATE_SUCCESS,
-          payload: { user: refreshedUser }
+        console.log('[LINK] Step 5: Verification result:', {
+          hasRoommate,
+          userEmail: verifiedUser?.email,
+          roommateId: verifiedUser?.roommate?.id
         });
 
-        console.log('Roommate linking complete. Ready for retry.');
-        return { success: true, user: refreshedUser };
-      } catch (refreshError) {
-        console.error('Session refresh failed after linking:', refreshError);
+        // Clear CSRF token BEFORE dispatch to ensure fresh token on retry
+        console.log('[LINK] Step 6: Clearing CSRF token for fresh token on next request...');
+        clearTokens();
+
+        // Dispatch success to trigger retry
+        dispatch({
+          type: AUTH_ACTIONS.LINK_ROOMMATE_SUCCESS,
+          payload: { user: verifiedUser }
+        });
+
+        console.log('[LINK] Step 7: Roommate linking complete. Auto-retry should trigger now.');
+        return { success: true, user: verifiedUser };
+      } catch (verifyError) {
+        console.error('[LINK ERROR] Verification failed:', verifyError);
+        console.log('[LINK] Falling back to original user data...');
+
+        // Clear CSRF token before dispatch even on error
+        clearTokens();
+
         // Still dispatch success with original user data
         dispatch({
           type: AUTH_ACTIONS.LINK_ROOMMATE_SUCCESS,
@@ -320,7 +337,7 @@ export function AuthProvider({ children }) {
         return { success: true, user };
       }
     } catch (error) {
-      console.error('Failed to link roommate:', error);
+      console.error('[LINK ERROR] Failed to link roommate:', error);
       const errorMessage = error.response?.data?.error || 'Failed to link roommate';
       dispatch({
         type: AUTH_ACTIONS.LINK_ROOMMATE_ERROR,
