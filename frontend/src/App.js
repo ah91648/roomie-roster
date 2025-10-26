@@ -50,7 +50,7 @@ function MainApp() {
       setError(null);
     } catch (err) {
       setAppStatus('error');
-      setError('Unable to connect to the backend server. Make sure the Flask server is running on port 5002.');
+      setError('Unable to connect to the backend server. Make sure the Flask server is running on port 5001.');
     }
   };
 
@@ -119,7 +119,7 @@ function MainApp() {
             </button>
             <div className="help-text">
               <p>To start the backend server:</p>
-              <code>cd backend && PORT=5002 python app.py</code>
+              <code>cd backend && PORT=5001 python app.py</code>
             </div>
           </div>
         </div>
