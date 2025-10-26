@@ -48,7 +48,11 @@ class SessionManager:
         @app.teardown_appcontext
         def cleanup_session(error):
             if error:
-                session.clear()
+                try:
+                    session.clear()
+                except RuntimeError:
+                    # Request context already torn down, nothing to clean up
+                    pass
     
     def create_user_session(self, google_id: str, user_data: Dict, remember_me: bool = True) -> bool:
         """Create a new user session."""

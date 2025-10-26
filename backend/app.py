@@ -2385,16 +2385,16 @@ def get_user_profile():
 
         # Diagnostic logging for troubleshooting roommate linking issues
         has_roommate = 'roommate' in user
-        logger.info(f"Profile request for {user.get('email')}: has_roommate={has_roommate}")
+        app.logger.info(f"Profile request for {user.get('email')}: has_roommate={has_roommate}")
 
         if has_roommate:
-            logger.info(f"  → Roommate: {user['roommate'].get('name')} (ID: {user['roommate'].get('id')})")
+            app.logger.info(f"  → Roommate: {user['roommate'].get('name')} (ID: {user['roommate'].get('id')})")
         else:
-            logger.info("  → No roommate linked (will show linking modal)")
+            app.logger.info("  → No roommate linked (will show linking modal)")
 
         return jsonify({'user': user})
     except Exception as e:
-        logger.error(f"Error getting user profile: {e}", exc_info=True)
+        app.logger.error(f"Error getting user profile: {e}", exc_info=True)
         return jsonify({'error': 'Failed to get user profile'}), 500
 
 @app.route('/api/auth/refresh', methods=['POST'])
