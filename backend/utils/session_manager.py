@@ -85,10 +85,10 @@ class SessionManager:
         return session.get('authenticated', False)
     
     def get_current_user(self) -> Optional[Dict]:
-        """Get current authenticated user data."""
+        """Get current authenticated user data with validated roommate linkage."""
         if not self.is_authenticated():
             return None
-        
+
         user_data = {
             'google_id': session.get('google_id'),
             'email': session.get('user_email'),
@@ -97,15 +97,47 @@ class SessionManager:
             'login_time': session.get('login_time'),
             'csrf_token': session.get('csrf_token')
         }
-        
-        # Add roommate info if linked
+
+        # CRITICAL FIX: Validate roommate exists before adding to user object
+        # This prevents session/data mismatch bugs where session has roommate_id
+        # but the roommate doesn't actually exist in the database
         if session.get('roommate_id'):
-            user_data['roommate'] = {
-                'id': session.get('roommate_id'),
-                'name': session.get('roommate_name')
-            }
-        
+            # Verify the roommate actually exists (don't trust session blindly)
+            actual_roommate = self._validate_and_get_roommate()
+
+            if actual_roommate:
+                # Roommate exists - add to user data
+                user_data['roommate'] = {
+                    'id': actual_roommate['id'],
+                    'name': actual_roommate['name']
+                }
+            else:
+                # Roommate doesn't exist - clean up stale session data
+                print(f"[SESSION CLEANUP] Removing stale roommate_id {session.get('roommate_id')} from session for user {user_data['email']}")
+                session.pop('roommate_id', None)
+                session.pop('roommate_name', None)
+
         return user_data
+
+    def _validate_and_get_roommate(self) -> Optional[Dict]:
+        """Validate that session's roommate_id corresponds to a real roommate.
+
+        Returns:
+            The roommate dict if found, None if not found or invalid
+        """
+        if not self.data_handler:
+            return None
+
+        roommate_id = session.get('roommate_id')
+        if not roommate_id:
+            return None
+
+        try:
+            roommates = self.data_handler.get_roommates()
+            return next((r for r in roommates if r['id'] == roommate_id), None)
+        except Exception as e:
+            print(f"[SESSION ERROR] Failed to validate roommate: {str(e)}")
+            return None
     
     def get_current_roommate(self) -> Optional[Dict]:
         """Get current user's linked roommate."""

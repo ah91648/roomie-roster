@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { pomodoroAPI, choreAPI, todoAPI } from '../services/api';
+import RoommateSelector from './RoommateSelector';
+import { useAuth } from '../contexts/AuthContext';
 
 const PomodoroTimer = () => {
+  // Auth context for roommate linking
+  const { user } = useAuth();
+
   // Active session state
   const [activeSession, setActiveSession] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(null);
@@ -22,6 +27,8 @@ const PomodoroTimer = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [notificationPermission, setNotificationPermission] = useState('default');
+  const [showRoommateSelector, setShowRoommateSelector] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
 
   // Refs for intervals
   const pollIntervalRef = useRef(null);
@@ -53,6 +60,14 @@ const PomodoroTimer = () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
+
+  // Watch for roommate linking completion
+  useEffect(() => {
+    if (showRoommateSelector && user?.roommate) {
+      // User just linked to a roommate, call the success handler
+      handleRoommateLinked();
+    }
+  }, [user?.roommate, showRoommateSelector]);
 
   // Client-side timer for countdown
   useEffect(() => {
@@ -162,7 +177,19 @@ const PomodoroTimer = () => {
       // Refresh active session
       await pollActiveSession();
     } catch (err) {
-      setError('Failed to start session: ' + (err.response?.data?.error || err.message));
+      // ENHANCED ERROR HANDLING: Detect roommate linking errors
+      const errorMessage = err.response?.data?.error || err.message;
+      const isRoommateError = err.response?.status === 403 &&
+        (errorMessage.includes('roommate') || errorMessage.includes('link'));
+
+      if (isRoommateError) {
+        // Save the action to retry after linking
+        setPendingAction(() => handleStartSession);
+        setShowRoommateSelector(true);
+        setError(null); // Clear error since we're showing the modal
+      } else {
+        setError('Failed to start session: ' + errorMessage);
+      }
     }
   };
 
@@ -223,6 +250,29 @@ const PomodoroTimer = () => {
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
     return `${Math.floor(diffMins / 1440)}d ago`;
+  };
+
+  const handleRoommateLinked = async () => {
+    console.log('[POMODORO] Roommate linked successfully, closing modal...');
+    setShowRoommateSelector(false);
+
+    // Retry the pending action if there is one
+    if (pendingAction) {
+      console.log('[POMODORO] Retrying pending action...');
+      // Small delay to ensure session is fully updated on backend
+      setTimeout(() => {
+        const action = pendingAction;
+        setPendingAction(null);
+        action({ preventDefault: () => {} }); // Call with mock event
+      }, 800);
+    }
+  };
+
+  const handleRoommateSelectorCancel = () => {
+    console.log('[POMODORO] User cancelled roommate linking');
+    setShowRoommateSelector(false);
+    setPendingAction(null);
+    setError('You must link your account to a roommate to use productivity features');
   };
 
   if (loading) {
@@ -424,6 +474,40 @@ const PomodoroTimer = () => {
       {notificationPermission === 'denied' && (
         <div className="notification-warning">
           Browser notifications are blocked. Enable them in your browser settings to get alerts when sessions complete.
+        </div>
+      )}
+
+      {/* Roommate Linking Modal - Shown when productivity features require roommate link */}
+      {showRoommateSelector && (
+        <div className="modal-overlay" onClick={(e) => {
+          // Only close if clicking the overlay background, not the modal content
+          if (e.target.className === 'modal-overlay') {
+            handleRoommateSelectorCancel();
+          }
+        }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Roommate Linking Required</h2>
+              <button
+                className="modal-close"
+                onClick={handleRoommateSelectorCancel}
+                aria-label="Close modal"
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="modal-info">
+                Productivity features (Pomodoro, Todos, Mood Journal) require you to link your Google account to a roommate profile.
+                Please select which roommate you are:
+              </p>
+              <RoommateSelector
+                onCancel={handleRoommateSelectorCancel}
+                title="Select Your Roommate Profile"
+                subtitle="Choose your profile to continue using productivity features"
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -2372,15 +2372,29 @@ def handle_auth_callback():
 @app.route('/api/auth/profile', methods=['GET'])
 @login_required
 def get_user_profile():
-    """Get current user profile."""
+    """Get current user profile with validated roommate linkage.
+
+    IMPORTANT: This endpoint now includes automatic session cleanup.
+    If a user's session has a roommate_id but the roommate doesn't exist,
+    the session will be cleaned and the user will need to re-link.
+    """
     try:
         user = session_manager.get_current_user()
         if not user:
             return jsonify({'error': 'No user session found'}), 401
-        
+
+        # Diagnostic logging for troubleshooting roommate linking issues
+        has_roommate = 'roommate' in user
+        logger.info(f"Profile request for {user.get('email')}: has_roommate={has_roommate}")
+
+        if has_roommate:
+            logger.info(f"  → Roommate: {user['roommate'].get('name')} (ID: {user['roommate'].get('id')})")
+        else:
+            logger.info("  → No roommate linked (will show linking modal)")
+
         return jsonify({'user': user})
     except Exception as e:
-        print(f"Error getting user profile: {e}")
+        logger.error(f"Error getting user profile: {e}", exc_info=True)
         return jsonify({'error': 'Failed to get user profile'}), 500
 
 @app.route('/api/auth/refresh', methods=['POST'])
