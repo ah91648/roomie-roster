@@ -17,9 +17,10 @@ class SecurityMiddleware:
         
         # Security settings
         self.rate_limits = {
-            'auth': {'requests': 5, 'window': 300},      # 5 auth attempts per 5 minutes
-            'api': {'requests': 100, 'window': 60},       # 100 API calls per minute
-            'calendar': {'requests': 20, 'window': 60},   # 20 calendar ops per minute
+            'auth': {'requests': 5, 'window': 300},           # 5 auth attempts per 5 minutes
+            'api': {'requests': 100, 'window': 60},           # 100 API calls per minute
+            'calendar': {'requests': 20, 'window': 60},       # 20 calendar ops per minute
+            'productivity': {'requests': 50, 'window': 60},   # 50 productivity ops per minute
         }
         
         # Security headers

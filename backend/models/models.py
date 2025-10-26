@@ -1,8 +1,9 @@
 """
-SQLAlchemy models for the RoomieRoster application.
+SQLAlchemy models for the Zeith application.
 
-These models represent the data structure of the household chore management system,
-including chores, roommates, assignments, shopping lists, and related functionality.
+These models represent the data structure of the household management and personal
+productivity platform, including chores, roommates, assignments, shopping lists,
+productivity tracking (Pomodoro, to-dos, mood journaling), and analytics.
 """
 
 from datetime import datetime, timedelta
@@ -965,25 +966,25 @@ class BlockedTimeSlot(BaseModel):
 
 class ApplicationState(BaseModel):
     """Model representing application state and metadata."""
-    
+
     __tablename__ = 'application_state'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(50), unique=True, nullable=False)
     value = db.Column(db.Text, nullable=True)  # JSON serialized value
     last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    
+
     # Special relationship for predefined chore states
     chore_id = db.Column(db.Integer, db.ForeignKey('chores.id'), nullable=True)
     chore = db.relationship('Chore', back_populates='predefined_state')
-    
+
     @validates('key')
     def validate_key(self, key_name, key_value):
         """Validate state key."""
         if not key_value or not key_value.strip():
             raise ValueError("State key cannot be empty")
         return key_value.strip()
-    
+
     def set_value(self, value: Any):
         """Set value (will be JSON serialized)."""
         if isinstance(value, (dict, list)):
@@ -992,39 +993,39 @@ class ApplicationState(BaseModel):
             self.value = str(value)
         self.last_updated = datetime.utcnow()
         return self
-    
+
     def get_value(self, default: Any = None) -> Any:
         """Get value (will be JSON deserialized if applicable)."""
         if self.value is None:
             return default
-        
+
         try:
             # Try to parse as JSON
             return json.loads(self.value)
         except (json.JSONDecodeError, TypeError):
             # Return as string if not valid JSON
             return self.value
-    
+
     @classmethod
     def get_state_value(cls, key: str, default: Any = None) -> Any:
         """Get a state value by key."""
         state = db.session.query(cls).filter_by(key=key).first()
         return state.get_value(default) if state else default
-    
+
     @classmethod
     def set_state_value(cls, key: str, value: Any) -> 'ApplicationState':
         """Set a state value by key."""
         state = db.session.query(cls).filter_by(key=key).first()
-        
+
         if state:
             state.set_value(value)
         else:
             state = cls(key=key)
             state.set_value(value)
             db.session.add(state)
-        
+
         return state
-    
+
     @classmethod
     def get_last_run_date(cls) -> Optional[datetime]:
         """Get the last run date."""
@@ -1035,30 +1036,30 @@ class ApplicationState(BaseModel):
             except (ValueError, TypeError):
                 return None
         return None
-    
+
     @classmethod
     def set_last_run_date(cls, date: datetime = None):
         """Set the last run date."""
         if date is None:
             date = datetime.utcnow()
         cls.set_state_value('last_run_date', date.isoformat())
-    
+
     @classmethod
     def get_global_predefined_rotation(cls) -> int:
         """Get the global predefined rotation index."""
         return cls.get_state_value('global_predefined_rotation', 0)
-    
+
     @classmethod
     def set_global_predefined_rotation(cls, rotation_index: int):
         """Set the global predefined rotation index."""
         cls.set_state_value('global_predefined_rotation', rotation_index)
-    
+
     @classmethod
     def get_predefined_chore_state(cls, chore_id: int) -> Optional[int]:
         """Get the last assigned roommate ID for a predefined chore."""
         key = f'predefined_chore_{chore_id}'
         return cls.get_state_value(key)
-    
+
     @classmethod
     def set_predefined_chore_state(cls, chore_id: int, roommate_id: int):
         """Set the last assigned roommate ID for a predefined chore."""
@@ -1066,9 +1067,500 @@ class ApplicationState(BaseModel):
         state = cls.set_state_value(key, roommate_id)
         state.chore_id = chore_id
         return state
-    
+
     def __repr__(self):
         return f'<ApplicationState {self.id}: {self.key} = {self.value[:50] if self.value else None}>'
+
+
+# ============================================================================
+# PRODUCTIVITY FEATURE MODELS (ZEITH)
+# ============================================================================
+
+
+class PomodoroSession(BaseModel):
+    """Model representing a Pomodoro focus session."""
+
+    __tablename__ = 'pomodoro_sessions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    roommate_id = db.Column(db.Integer, db.ForeignKey('roommates.id'), nullable=False)
+
+    # Session timing
+    start_time = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    end_time = db.Column(db.DateTime, nullable=True)
+    planned_duration_minutes = db.Column(db.Integer, default=25, nullable=False)
+    actual_duration_minutes = db.Column(db.Integer, nullable=True)
+
+    # Session type
+    session_type = db.Column(db.String(20), default='focus', nullable=False)  # focus, short_break, long_break
+    status = db.Column(db.String(20), default='in_progress', nullable=False)  # in_progress, completed, interrupted
+
+    # Optional linking to chores or todos
+    chore_id = db.Column(db.Integer, db.ForeignKey('chores.id'), nullable=True)
+    todo_id = db.Column(db.Integer, db.ForeignKey('todo_items.id'), nullable=True)
+
+    # Notes and metadata
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    roommate = db.relationship('Roommate', backref='pomodoro_sessions')
+    chore = db.relationship('Chore', backref='pomodoro_sessions')
+    todo = db.relationship('TodoItem', backref='pomodoro_sessions', foreign_keys='PomodoroSession.todo_id')
+
+    VALID_SESSION_TYPES = ['focus', 'short_break', 'long_break']
+    VALID_STATUSES = ['in_progress', 'completed', 'interrupted']
+
+    @validates('session_type')
+    def validate_session_type(self, key, session_type):
+        """Validate session type."""
+        if session_type not in self.VALID_SESSION_TYPES:
+            raise ValueError(f"Session type must be one of: {', '.join(self.VALID_SESSION_TYPES)}")
+        return session_type
+
+    @validates('status')
+    def validate_status(self, key, status):
+        """Validate session status."""
+        if status not in self.VALID_STATUSES:
+            raise ValueError(f"Status must be one of: {', '.join(self.VALID_STATUSES)}")
+        return status
+
+    @validates('planned_duration_minutes')
+    def validate_planned_duration(self, key, duration):
+        """Validate planned duration is positive."""
+        if duration <= 0:
+            raise ValueError("Planned duration must be positive")
+        return duration
+
+    def complete_session(self, notes: str = None):
+        """Mark session as completed."""
+        if self.status != 'in_progress':
+            raise ValueError(f"Cannot complete {self.status} session")
+
+        self.status = 'completed'
+        self.end_time = datetime.utcnow()
+        self.actual_duration_minutes = int((self.end_time - self.start_time).total_seconds() / 60)
+
+        if notes:
+            self.notes = notes if not self.notes else f"{self.notes} | {notes}"
+
+        return self
+
+    def interrupt_session(self, reason: str = None):
+        """Mark session as interrupted."""
+        if self.status != 'in_progress':
+            raise ValueError(f"Cannot interrupt {self.status} session")
+
+        self.status = 'interrupted'
+        self.end_time = datetime.utcnow()
+        self.actual_duration_minutes = int((self.end_time - self.start_time).total_seconds() / 60)
+
+        if reason:
+            self.notes = reason if not self.notes else f"{self.notes} | Interrupted: {reason}"
+
+        return self
+
+    @hybrid_property
+    def is_active(self) -> bool:
+        """Check if session is currently active."""
+        return self.status == 'in_progress'
+
+    @hybrid_property
+    def is_overdue(self) -> bool:
+        """Check if active session has exceeded planned duration."""
+        if not self.is_active:
+            return False
+        elapsed_minutes = (datetime.utcnow() - self.start_time).total_seconds() / 60
+        return elapsed_minutes > self.planned_duration_minutes
+
+    @hybrid_property
+    def elapsed_minutes(self) -> int:
+        """Get elapsed time in minutes."""
+        if self.end_time:
+            return int((self.end_time - self.start_time).total_seconds() / 60)
+        return int((datetime.utcnow() - self.start_time).total_seconds() / 60)
+
+    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Convert to dictionary with additional fields."""
+        data = super().to_dict(exclude)
+
+        if self.roommate:
+            data['roommate_name'] = self.roommate.name
+
+        if self.chore:
+            data['chore_name'] = self.chore.name
+
+        if self.todo:
+            data['todo_title'] = self.todo.title
+
+        data['is_active'] = self.is_active
+        data['is_overdue'] = self.is_overdue
+        data['elapsed_minutes'] = self.elapsed_minutes
+
+        return data
+
+    def __repr__(self):
+        return f'<PomodoroSession {self.id}: {self.roommate.name if self.roommate else "Unknown"} - {self.planned_duration_minutes}min ({self.status})>'
+
+
+class TodoItem(BaseModel):
+    """Model representing personal to-do list items (separate from household chores)."""
+
+    __tablename__ = 'todo_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    roommate_id = db.Column(db.Integer, db.ForeignKey('roommates.id'), nullable=False)
+
+    # Task details
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    category = db.Column(db.String(50), default='Personal', nullable=False)  # Personal, Work, Household, etc.
+
+    # Priority and status
+    priority = db.Column(db.String(20), default='medium', nullable=False)  # low, medium, high, urgent
+    status = db.Column(db.String(20), default='pending', nullable=False)  # pending, in_progress, completed
+
+    # Timing
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    due_date = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+    # Optional chore linkage
+    chore_id = db.Column(db.Integer, db.ForeignKey('chores.id'), nullable=True)
+
+    # Pomodoro estimation
+    estimated_pomodoros = db.Column(db.Integer, default=1, nullable=True)
+    actual_pomodoros = db.Column(db.Integer, default=0, nullable=False)
+
+    # Tags for flexible categorization
+    tags = db.Column(JSON, nullable=True)  # ['urgent', 'health', 'finance']
+
+    # Order for manual sorting
+    display_order = db.Column(db.Integer, default=0, nullable=False)
+
+    # Relationships
+    roommate = db.relationship('Roommate', backref='todo_items')
+    chore = db.relationship('Chore', backref='todo_items')
+
+    VALID_PRIORITIES = ['low', 'medium', 'high', 'urgent']
+    VALID_STATUSES = ['pending', 'in_progress', 'completed']
+
+    @validates('title')
+    def validate_title(self, key, title):
+        """Validate title is not empty."""
+        if not title or not title.strip():
+            raise ValueError("Title cannot be empty")
+        return title.strip()
+
+    @validates('priority')
+    def validate_priority(self, key, priority):
+        """Validate priority level."""
+        if priority not in self.VALID_PRIORITIES:
+            raise ValueError(f"Priority must be one of: {', '.join(self.VALID_PRIORITIES)}")
+        return priority
+
+    @validates('status')
+    def validate_status(self, key, status):
+        """Validate status."""
+        if status not in self.VALID_STATUSES:
+            raise ValueError(f"Status must be one of: {', '.join(self.VALID_STATUSES)}")
+        return status
+
+    @validates('estimated_pomodoros')
+    def validate_estimated_pomodoros(self, key, count):
+        """Validate pomodoro estimate is non-negative."""
+        if count is not None and count < 0:
+            raise ValueError("Estimated pomodoros cannot be negative")
+        return count
+
+    def mark_completed(self):
+        """Mark todo as completed."""
+        if self.status == 'completed':
+            raise ValueError("Todo is already completed")
+
+        self.status = 'completed'
+        self.completed_at = datetime.utcnow()
+        return self
+
+    def mark_in_progress(self):
+        """Mark todo as in progress."""
+        if self.status == 'completed':
+            raise ValueError("Cannot mark completed todo as in progress")
+
+        self.status = 'in_progress'
+        return self
+
+    def mark_pending(self):
+        """Mark todo as pending (undo completion/progress)."""
+        self.status = 'pending'
+        if self.completed_at:
+            self.completed_at = None
+        return self
+
+    def increment_pomodoro_count(self):
+        """Increment actual pomodoro count."""
+        self.actual_pomodoros += 1
+        return self
+
+    @hybrid_property
+    def is_overdue(self) -> bool:
+        """Check if todo is overdue."""
+        return (self.due_date is not None and
+                self.status != 'completed' and
+                datetime.utcnow() > self.due_date)
+
+    @hybrid_property
+    def days_until_due(self) -> Optional[int]:
+        """Get days until due date (negative if overdue)."""
+        if self.due_date is None:
+            return None
+        delta = self.due_date - datetime.utcnow()
+        return delta.days
+
+    @hybrid_property
+    def pomodoro_progress_percentage(self) -> float:
+        """Get pomodoro completion percentage."""
+        if self.estimated_pomodoros is None or self.estimated_pomodoros == 0:
+            return 0.0
+        return min(100.0, (self.actual_pomodoros / self.estimated_pomodoros) * 100)
+
+    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Convert to dictionary with additional fields."""
+        data = super().to_dict(exclude)
+
+        if self.roommate:
+            data['roommate_name'] = self.roommate.name
+
+        if self.chore:
+            data['chore_name'] = self.chore.name
+
+        data['is_overdue'] = self.is_overdue
+        data['days_until_due'] = self.days_until_due
+        data['pomodoro_progress_percentage'] = self.pomodoro_progress_percentage
+
+        return data
+
+    def __repr__(self):
+        return f'<TodoItem {self.id}: {self.title} ({self.priority}, {self.status})>'
+
+
+class MoodEntry(BaseModel):
+    """Model representing mood journal entries for productivity correlation."""
+
+    __tablename__ = 'mood_entries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    roommate_id = db.Column(db.Integer, db.ForeignKey('roommates.id'), nullable=False)
+
+    # Entry timing
+    entry_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Mood metrics (1-5 scale)
+    mood_level = db.Column(db.Integer, nullable=False)  # 1=very_sad, 2=sad, 3=neutral, 4=good, 5=great
+    energy_level = db.Column(db.Integer, nullable=True)  # 1=exhausted, 5=energized
+    stress_level = db.Column(db.Integer, nullable=True)  # 1=relaxed, 5=very_stressed
+    focus_level = db.Column(db.Integer, nullable=True)  # 1=distracted, 5=very_focused
+
+    # Mood emoji/label
+    mood_emoji = db.Column(db.String(10), nullable=True)  # 😔, 😟, 😐, 😊, 😄
+    mood_label = db.Column(db.String(50), nullable=True)  # sad, tired, good, great, anxious, etc.
+
+    # Journal notes
+    notes = db.Column(db.Text, nullable=True)
+
+    # Tags for flexible categorization
+    tags = db.Column(JSON, nullable=True)  # ['productive', 'relaxed', 'stressed', 'social']
+
+    # Contextual data (optional)
+    sleep_hours = db.Column(db.Float, nullable=True)
+    exercise_minutes = db.Column(db.Integer, nullable=True)
+
+    # Relationships
+    roommate = db.relationship('Roommate', backref='mood_entries')
+
+    @validates('mood_level', 'energy_level', 'stress_level', 'focus_level')
+    def validate_levels(self, key, value):
+        """Validate all levels are in 1-5 range."""
+        if value is not None and (value < 1 or value > 5):
+            raise ValueError(f"{key.replace('_', ' ').title()} must be between 1 and 5")
+        return value
+
+    @validates('sleep_hours')
+    def validate_sleep_hours(self, key, hours):
+        """Validate sleep hours are reasonable."""
+        if hours is not None and (hours < 0 or hours > 24):
+            raise ValueError("Sleep hours must be between 0 and 24")
+        return hours
+
+    @validates('exercise_minutes')
+    def validate_exercise_minutes(self, key, minutes):
+        """Validate exercise minutes are non-negative."""
+        if minutes is not None and minutes < 0:
+            raise ValueError("Exercise minutes cannot be negative")
+        return minutes
+
+    @hybrid_property
+    def is_today(self) -> bool:
+        """Check if entry is for today."""
+        return self.entry_date.date() == datetime.utcnow().date()
+
+    @hybrid_property
+    def overall_wellbeing_score(self) -> float:
+        """Calculate overall wellbeing score (average of all metrics)."""
+        scores = [self.mood_level]
+
+        if self.energy_level:
+            scores.append(self.energy_level)
+        if self.stress_level:
+            scores.append(6 - self.stress_level)  # Invert stress (lower is better)
+        if self.focus_level:
+            scores.append(self.focus_level)
+
+        return round(sum(scores) / len(scores), 1) if scores else 0.0
+
+    def get_mood_emoji_from_level(self) -> str:
+        """Get appropriate emoji based on mood level."""
+        emoji_map = {
+            1: '😔',  # very sad
+            2: '😟',  # sad
+            3: '😐',  # neutral
+            4: '😊',  # good
+            5: '😄'   # great
+        }
+        return emoji_map.get(self.mood_level, '😐')
+
+    def auto_set_emoji(self):
+        """Automatically set emoji based on mood level."""
+        if not self.mood_emoji:
+            self.mood_emoji = self.get_mood_emoji_from_level()
+        return self
+
+    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Convert to dictionary with additional fields."""
+        data = super().to_dict(exclude)
+
+        if self.roommate:
+            data['roommate_name'] = self.roommate.name
+
+        data['is_today'] = self.is_today
+        data['overall_wellbeing_score'] = self.overall_wellbeing_score
+
+        return data
+
+    def __repr__(self):
+        return f'<MoodEntry {self.id}: {self.roommate.name if self.roommate else "Unknown"} - {self.mood_level}/5 ({self.entry_date.date()})>'
+
+
+class AnalyticsSnapshot(BaseModel):
+    """Model storing daily analytics snapshots for historical tracking."""
+
+    __tablename__ = 'analytics_snapshots'
+
+    id = db.Column(db.Integer, primary_key=True)
+    snapshot_date = db.Column(db.Date, default=datetime.utcnow, nullable=False)
+    roommate_id = db.Column(db.Integer, db.ForeignKey('roommates.id'), nullable=True)  # NULL for household-wide
+
+    # Chore metrics
+    chores_completed = db.Column(db.Integer, default=0, nullable=False)
+    chores_assigned = db.Column(db.Integer, default=0, nullable=False)
+    total_points_earned = db.Column(db.Integer, default=0, nullable=False)
+
+    # Productivity metrics
+    pomodoros_completed = db.Column(db.Integer, default=0, nullable=False)
+    focus_time_minutes = db.Column(db.Integer, default=0, nullable=False)
+    todos_completed = db.Column(db.Integer, default=0, nullable=False)
+    todos_created = db.Column(db.Integer, default=0, nullable=False)
+
+    # Mood metrics
+    average_mood = db.Column(db.Float, nullable=True)
+    average_energy = db.Column(db.Float, nullable=True)
+    average_stress = db.Column(db.Float, nullable=True)
+    average_focus = db.Column(db.Float, nullable=True)
+    mood_entries_count = db.Column(db.Integer, default=0, nullable=False)
+
+    # Household metrics (when roommate_id is NULL)
+    total_household_points = db.Column(db.Integer, nullable=True)
+    fairness_score = db.Column(db.Float, nullable=True)  # 0-100, measures point distribution equity
+
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    roommate = db.relationship('Roommate', backref='analytics_snapshots')
+
+    # Unique constraint to prevent duplicate snapshots
+    __table_args__ = (
+        db.UniqueConstraint('snapshot_date', 'roommate_id', name='unique_snapshot_per_day'),
+    )
+
+    @validates('chores_completed', 'chores_assigned', 'total_points_earned',
+               'pomodoros_completed', 'focus_time_minutes', 'todos_completed',
+               'todos_created', 'mood_entries_count')
+    def validate_non_negative_counts(self, key, value):
+        """Validate counts are non-negative."""
+        if value < 0:
+            raise ValueError(f"{key.replace('_', ' ').title()} cannot be negative")
+        return value
+
+    @validates('average_mood', 'average_energy', 'average_stress', 'average_focus')
+    def validate_averages(self, key, value):
+        """Validate averages are in 1-5 range."""
+        if value is not None and (value < 1 or value > 5):
+            raise ValueError(f"{key.replace('_', ' ').title()} must be between 1 and 5")
+        return value
+
+    @validates('fairness_score')
+    def validate_fairness_score(self, key, score):
+        """Validate fairness score is in 0-100 range."""
+        if score is not None and (score < 0 or score > 100):
+            raise ValueError("Fairness score must be between 0 and 100")
+        return score
+
+    @hybrid_property
+    def is_household_snapshot(self) -> bool:
+        """Check if this is a household-wide snapshot."""
+        return self.roommate_id is None
+
+    @hybrid_property
+    def chore_completion_rate(self) -> float:
+        """Calculate chore completion rate as percentage."""
+        if self.chores_assigned == 0:
+            return 0.0
+        return round((self.chores_completed / self.chores_assigned) * 100, 1)
+
+    @hybrid_property
+    def productivity_score(self) -> float:
+        """Calculate composite productivity score."""
+        # Weighted average of normalized metrics
+        chore_score = self.chore_completion_rate / 10  # 0-10 scale
+        pomodoro_score = min(10, self.pomodoros_completed)  # Cap at 10
+        todo_score = min(10, self.todos_completed * 2)  # Cap at 10
+        mood_score = (self.average_mood or 3) * 2  # 0-10 scale
+
+        # Weighted combination
+        total_score = (chore_score * 0.3 + pomodoro_score * 0.3 +
+                      todo_score * 0.2 + mood_score * 0.2)
+
+        return round(total_score, 1)
+
+    def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Convert to dictionary with additional fields."""
+        data = super().to_dict(exclude)
+
+        if self.roommate:
+            data['roommate_name'] = self.roommate.name
+
+        data['is_household_snapshot'] = self.is_household_snapshot
+        data['chore_completion_rate'] = self.chore_completion_rate
+        data['productivity_score'] = self.productivity_score
+
+        return data
+
+    def __repr__(self):
+        target = self.roommate.name if self.roommate else "Household"
+        return f'<AnalyticsSnapshot {self.id}: {target} - {self.snapshot_date}>'
 
 
 # Database utility functions

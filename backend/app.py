@@ -2,7 +2,7 @@ import sys
 import os
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # Add the backend directory to Python path for deployment compatibility
@@ -25,6 +25,7 @@ os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
 from flask import Flask, jsonify, request, send_from_directory, redirect
 from flask_cors import CORS
+from flask_talisman import Talisman
 from utils.data_handler import DataHandler
 from utils.database_data_handler import DatabaseDataHandler
 from utils.database_config import database_config
@@ -36,6 +37,7 @@ from utils.session_manager import SessionManager, login_required, roommate_requi
 from utils.user_calendar_service import UserCalendarService
 from utils.security_middleware import SecurityMiddleware, rate_limit, csrf_protected_enhanced, security_validated, auth_rate_limited
 from utils.scheduler_service import SchedulerService
+from utils.logger import configure_logging, request_logging_middleware
 
 # Import calendar notification service
 try:
@@ -49,44 +51,75 @@ except ImportError:
 # Initialize Flask app
 app = Flask(__name__, static_folder='../frontend/build', static_url_path='/')
 
-# Configure enhanced logging for better startup debugging
-def configure_app_logging():
-    """Configure comprehensive logging for Flask startup and errors"""
-    # Configure basic logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.StreamHandler(sys.stderr)
-        ]
-    )
-    
-    # Set Flask's logger level
-    app.logger.setLevel(logging.INFO)
-    
-    # Add startup success indicator (removed before_first_request as it's deprecated)
-    # Startup logging will be handled in the main block instead
-    
-    # Enhanced error handler
-    @app.errorhandler(Exception)
-    def handle_exception(e):
-        app.logger.error(f'Unhandled exception: {e}', exc_info=True)
-        return jsonify({'error': 'Internal server error', 'status_code': 500}), 500
+# Configure structured logging (JSON in production, human-readable in development)
+configure_logging(app)
 
-configure_app_logging()
+# Add request/response logging middleware
+request_logging_middleware(app)
+
+app.logger.info("Structured logging configured successfully")
 
 # Configure CORS for frontend integration
 CORS(app, resources={
     r"/api/*": {
-        "origins": ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", 
-                   "http://localhost:5000", "http://127.0.0.1:5000", 
+        "origins": ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001",
+                   "http://localhost:5000", "http://127.0.0.1:5000",
                    "https://roomie-roster.onrender.com"],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "X-CSRF-Token"],
         "supports_credentials": True
     }
 })
+
+# Configure security headers (Flask-Talisman)
+# Only enforce HTTPS in production
+is_production = os.getenv('FLASK_ENV') == 'production'
+
+csp = {
+    'default-src': "'self'",
+    'script-src': [
+        "'self'",
+        "'unsafe-inline'",  # Required for React
+        "'unsafe-eval'"     # Required for React dev tools
+    ],
+    'style-src': [
+        "'self'",
+        "'unsafe-inline'"   # Required for React and Recharts
+    ],
+    'img-src': [
+        "'self'",
+        'data:',            # For base64 images
+        'https:',           # For external images (Google profile pictures)
+        'blob:'
+    ],
+    'font-src': [
+        "'self'",
+        'data:'
+    ],
+    'connect-src': [
+        "'self'",
+        'https://accounts.google.com',  # OAuth
+        'https://www.googleapis.com'     # Google APIs
+    ],
+    'frame-ancestors': "'none'"  # Prevent clickjacking
+}
+
+Talisman(
+    app,
+    force_https=is_production,
+    strict_transport_security=is_production,
+    strict_transport_security_max_age=31536000,  # 1 year
+    content_security_policy=csp,
+    content_security_policy_nonce_in=['script-src'],
+    referrer_policy='strict-origin-when-cross-origin',
+    feature_policy={
+        'geolocation': "'none'",
+        'camera': "'none'",
+        'microphone': "'none'"
+    }
+)
+
+app.logger.info(f"Security headers configured (HTTPS enforcement: {is_production})")
 
 # Configure database connection
 database_config.configure_flask_app(app)
@@ -107,11 +140,15 @@ data_dir = os.path.join(script_dir, "data")
 
 # Use DatabaseDataHandler which automatically chooses between database and JSON files
 data_handler = DatabaseDataHandler(data_dir)
+# Also attach to app for test access
+app.data_handler = data_handler
 assignment_logic = ChoreAssignmentLogic(data_handler)
 calendar_service = CalendarService()
 auth_service = AuthService()
 user_calendar_service = UserCalendarService()
 session_manager = SessionManager(auth_service=auth_service, data_handler=data_handler)
+# Also attach to app for test access
+app.session_manager = session_manager
 security_middleware = SecurityMiddleware()
 
 # Initialize calendar notification service for household-wide notifications
@@ -223,25 +260,149 @@ def validate_redirect_uri(redirect_uri):
 # Health check endpoint
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Health check endpoint with database status."""
-    try:
-        # Get database status
-        db_status = database_initializer.get_database_status()
-        
-        health_info = {
-            'status': 'healthy',
-            'message': 'RoomieRoster API is running',
-            'database': db_status,
-            'timestamp': datetime.now().isoformat()
+    """
+    Enhanced health check endpoint for production deployment.
+
+    Returns 200 if all systems healthy, 503 if any critical system is down.
+    Used by Render to determine when to route traffic during deployments.
+    """
+    health_status = {
+        'status': 'healthy',  # Will change to 'degraded' or 'unhealthy' if issues found
+        'timestamp': datetime.now().isoformat(),
+        'checks': {
+            'database': {'status': 'unknown'},
+            'features': {'status': 'unknown'},
+            'scheduler': {'status': 'unknown'},
+            'migrations': {'status': 'unknown'}
         }
-        
-        return jsonify(health_info)
+    }
+
+    is_healthy = True
+
+    try:
+        # 1. Database connectivity check
+        try:
+            if database_config.should_use_database():
+                from sqlalchemy import text
+                db.session.execute(text("SELECT 1"))
+                db_status = database_initializer.get_database_status()
+
+                health_status['checks']['database'] = {
+                    'status': 'healthy',
+                    'type': 'postgresql',
+                    'connected': True,
+                    'details': db_status
+                }
+            else:
+                health_status['checks']['database'] = {
+                    'status': 'healthy',
+                    'type': 'json_files',
+                    'connected': True,
+                    'warning': 'Using JSON file storage - data will be lost on container restart'
+                }
+        except Exception as e:
+            health_status['checks']['database'] = {
+                'status': 'unhealthy',
+                'error': str(e)
+            }
+            is_healthy = False
+
+        # 2. Feature health checks
+        try:
+            # Test core features
+            roommates = data_handler.get_all_roommates()
+            core_working = isinstance(roommates, list)
+
+            # Test Zeith productivity features
+            productivity_working = False
+            try:
+                # Check if productivity methods exist and work
+                if hasattr(data_handler, 'get_pomodoro_sessions'):
+                    test_sessions = data_handler.get_pomodoro_sessions(roommate_id=1, status='completed')
+                    productivity_working = isinstance(test_sessions, list)
+            except:
+                productivity_working = False
+
+            health_status['checks']['features'] = {
+                'status': 'healthy' if (core_working and productivity_working) else 'degraded',
+                'core_features': core_working,
+                'productivity_features': productivity_working
+            }
+
+            if not core_working:
+                is_healthy = False
+
+        except Exception as e:
+            health_status['checks']['features'] = {
+                'status': 'unhealthy',
+                'error': str(e)
+            }
+            is_healthy = False
+
+        # 3. Scheduler status check (non-critical)
+        try:
+            if hasattr(app, 'scheduler_service'):
+                scheduler_running = app.scheduler_service.is_scheduler_running()
+                health_status['checks']['scheduler'] = {
+                    'status': 'healthy' if scheduler_running else 'degraded',
+                    'running': scheduler_running
+                }
+            else:
+                health_status['checks']['scheduler'] = {
+                    'status': 'degraded',
+                    'running': False,
+                    'message': 'Scheduler not initialized'
+                }
+        except Exception as e:
+            health_status['checks']['scheduler'] = {
+                'status': 'degraded',
+                'error': str(e)
+            }
+
+        # 4. Migration status check (if using database)
+        try:
+            if database_config.should_use_database():
+                # Check if migrations are up to date
+                # This is a lightweight check - just verifies migration table exists
+                db.session.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+                health_status['checks']['migrations'] = {
+                    'status': 'healthy',
+                    'message': 'Migration table exists'
+                }
+            else:
+                health_status['checks']['migrations'] = {
+                    'status': 'not_applicable',
+                    'message': 'JSON mode - no migrations needed'
+                }
+        except Exception as e:
+            # Migration table doesn't exist - might be first deployment
+            health_status['checks']['migrations'] = {
+                'status': 'warning',
+                'message': 'Migration table not found - run migrations',
+                'error': str(e)
+            }
+            # Don't mark as unhealthy - migrations might not be run yet
+
+        # Determine overall status
+        if not is_healthy:
+            health_status['status'] = 'unhealthy'
+            status_code = 503  # Service Unavailable - tells Render not to route traffic
+        elif health_status['checks']['features']['status'] == 'degraded':
+            health_status['status'] = 'degraded'
+            status_code = 200  # Still accept traffic but warn
+        else:
+            health_status['status'] = 'healthy'
+            status_code = 200
+
+        return jsonify(health_status), status_code
+
     except Exception as e:
+        app.logger.error(f"Health check failed: {e}", exc_info=True)
         return jsonify({
             'status': 'unhealthy',
             'message': f'Health check failed: {str(e)}',
             'timestamp': datetime.now().isoformat()
-        }), 500
+        }), 503
 
 # Debug endpoint for OAuth configuration
 @app.route('/api/debug/oauth-config', methods=['GET'])
@@ -2580,6 +2741,756 @@ def get_audit_statistics():
     except Exception as e:
         print(f"Error getting audit statistics: {e}")
         return jsonify({'error': 'Failed to get audit statistics'}), 500
+
+# ============================================================================
+# ZEITH PRODUCTIVITY ENDPOINTS
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Pomodoro Session Endpoints
+# ----------------------------------------------------------------------------
+
+@app.route('/api/pomodoro/start', methods=['POST'])
+@login_required
+@rate_limit('productivity')
+@csrf_protected_enhanced
+def start_pomodoro_session():
+    """Start a new Pomodoro session for the current user."""
+    try:
+        # Get current user's linked roommate
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Check for existing active session
+        active_session = data_handler.get_active_pomodoro_session(current_roommate['id'])
+        if active_session:
+            return jsonify({'error': 'You already have an active Pomodoro session', 'active_session': active_session}), 400
+
+        data = request.get_json() or {}
+
+        # Validate session type
+        session_type = data.get('session_type', 'focus')
+        if session_type not in ['focus', 'short_break', 'long_break']:
+            return jsonify({'error': 'Invalid session_type. Must be focus, short_break, or long_break'}), 400
+
+        # Set duration based on session type (Pomodoro defaults)
+        duration_defaults = {'focus': 25, 'short_break': 5, 'long_break': 15}
+        planned_duration = data.get('planned_duration_minutes', duration_defaults.get(session_type, 25))
+
+        # Create new session
+        new_session = {
+            'roommate_id': current_roommate['id'],
+            'start_time': datetime.utcnow().isoformat(),
+            'planned_duration_minutes': planned_duration,
+            'session_type': session_type,
+            'chore_id': data.get('chore_id'),
+            'todo_id': data.get('todo_id'),
+            'notes': data.get('notes', '').strip() or None,
+            'status': 'in_progress'
+        }
+
+        result = data_handler.add_pomodoro_session(new_session)
+        return jsonify(result), 201
+
+    except Exception as e:
+        app.logger.error(f"Error starting Pomodoro session: {e}")
+        return jsonify({'error': 'Failed to start Pomodoro session'}), 500
+
+@app.route('/api/pomodoro/complete', methods=['POST'])
+@login_required
+@rate_limit('productivity')
+@csrf_protected_enhanced
+def complete_pomodoro_session():
+    """Complete an active Pomodoro session."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        data = request.get_json() or {}
+        session_id = data.get('session_id')
+
+        if not session_id:
+            return jsonify({'error': 'session_id is required'}), 400
+
+        # Verify session belongs to current user
+        sessions = data_handler.get_pomodoro_sessions(roommate_id=current_roommate['id'])
+        session = next((s for s in sessions if s['id'] == session_id), None)
+
+        if not session:
+            return jsonify({'error': 'Pomodoro session not found or access denied'}), 404
+
+        if session.get('status') == 'completed':
+            return jsonify({'error': 'This session is already completed'}), 400
+
+        # Complete the session
+        notes = data.get('notes')
+        result = data_handler.complete_pomodoro_session(session_id, notes)
+        return jsonify(result), 200
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        app.logger.error(f"Error completing Pomodoro session: {e}")
+        return jsonify({'error': 'Failed to complete Pomodoro session'}), 500
+
+@app.route('/api/pomodoro/<int:session_id>/pause', methods=['POST'])
+@login_required
+@rate_limit('productivity')
+@csrf_protected_enhanced
+def pause_pomodoro_session(session_id):
+    """Pause an active Pomodoro session."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Verify session belongs to current user
+        sessions = data_handler.get_pomodoro_sessions(roommate_id=current_roommate['id'])
+        session = next((s for s in sessions if s['id'] == session_id), None)
+
+        if not session:
+            return jsonify({'error': 'Pomodoro session not found or access denied'}), 404
+
+        if session.get('status') != 'in_progress':
+            return jsonify({'error': f"Cannot pause session with status '{session.get('status')}'"}), 400
+
+        data = request.get_json() or {}
+
+        # Update session to paused
+        updated_data = {
+            'status': 'paused',
+            'notes': data.get('notes', session.get('notes'))
+        }
+
+        result = data_handler.update_pomodoro_session(session_id, updated_data)
+        return jsonify(result), 200
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        app.logger.error(f"Error pausing Pomodoro session: {e}")
+        return jsonify({'error': 'Failed to pause Pomodoro session'}), 500
+
+@app.route('/api/pomodoro/active', methods=['GET'])
+@login_required
+@rate_limit('productivity')
+def get_active_pomodoro():
+    """Get the current user's active Pomodoro session."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        active_session = data_handler.get_active_pomodoro_session(current_roommate['id'])
+
+        if active_session:
+            return jsonify(active_session), 200
+        else:
+            return jsonify(None), 200
+
+    except Exception as e:
+        app.logger.error(f"Error getting active Pomodoro session: {e}")
+        return jsonify({'error': 'Failed to get active Pomodoro session'}), 500
+
+@app.route('/api/pomodoro/history', methods=['GET'])
+@login_required
+@rate_limit('productivity')
+def get_pomodoro_history():
+    """Get Pomodoro session history for the current user."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Get query parameters
+        status = request.args.get('status')  # completed, in_progress, paused
+        start_date = request.args.get('start_date')  # ISO8601 format
+
+        # Validate status if provided
+        if status and status not in ['completed', 'in_progress', 'paused']:
+            return jsonify({'error': 'Invalid status. Must be completed, in_progress, or paused'}), 400
+
+        sessions = data_handler.get_pomodoro_sessions(
+            roommate_id=current_roommate['id'],
+            status=status,
+            start_date=start_date
+        )
+
+        # Apply limit if provided
+        limit = request.args.get('limit', type=int)
+        if limit and limit > 0:
+            sessions = sessions[:limit]
+
+        return jsonify(sessions), 200
+
+    except Exception as e:
+        app.logger.error(f"Error getting Pomodoro history: {e}")
+        return jsonify({'error': 'Failed to get Pomodoro history'}), 500
+
+@app.route('/api/pomodoro/stats', methods=['GET'])
+@login_required
+@rate_limit('productivity')
+def get_pomodoro_statistics():
+    """Get Pomodoro session statistics for the current user."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Get period parameter (day, week, month, year)
+        period = request.args.get('period', 'week')
+        if period not in ['day', 'week', 'month', 'year']:
+            return jsonify({'error': 'Invalid period. Must be day, week, month, or year'}), 400
+
+        stats = data_handler.get_pomodoro_stats(current_roommate['id'], period)
+        return jsonify(stats), 200
+
+    except Exception as e:
+        app.logger.error(f"Error getting Pomodoro stats: {e}")
+        return jsonify({'error': 'Failed to get Pomodoro statistics'}), 500
+
+# ----------------------------------------------------------------------------
+# Todo Item Endpoints
+# ----------------------------------------------------------------------------
+
+@app.route('/api/todos', methods=['GET'])
+@login_required
+@rate_limit('productivity')
+def get_todos():
+    """Get todo items for the current user with optional filtering."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Get query parameters
+        status = request.args.get('status')  # pending, in_progress, completed
+        category = request.args.get('category')  # Personal, Work, Household, etc.
+
+        # Validate status if provided
+        if status and status not in ['pending', 'in_progress', 'completed']:
+            return jsonify({'error': 'Invalid status. Must be pending, in_progress, or completed'}), 400
+
+        todos = data_handler.get_todo_items(
+            roommate_id=current_roommate['id'],
+            status=status,
+            category=category
+        )
+
+        return jsonify(todos), 200
+
+    except Exception as e:
+        app.logger.error(f"Error getting todos: {e}")
+        return jsonify({'error': 'Failed to get todos'}), 500
+
+@app.route('/api/todos', methods=['POST'])
+@login_required
+@rate_limit('productivity')
+@csrf_protected_enhanced
+def create_todo():
+    """Create a new todo item for the current user."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        data = request.get_json() or {}
+
+        # Validate required fields
+        if not data.get('title') or not data['title'].strip():
+            return jsonify({'error': 'Title is required and cannot be empty'}), 400
+
+        # Validate priority if provided
+        priority = data.get('priority', 'medium')
+        if priority not in ['low', 'medium', 'high', 'urgent']:
+            return jsonify({'error': 'Invalid priority. Must be low, medium, high, or urgent'}), 400
+
+        # Validate due_date if provided (must be in the future)
+        due_date = data.get('due_date')
+        if due_date:
+            try:
+                due_date_obj = datetime.fromisoformat(due_date.replace('Z', '+00:00'))
+                if due_date_obj < datetime.utcnow():
+                    return jsonify({'error': 'Due date must be in the future'}), 400
+            except ValueError:
+                return jsonify({'error': 'Invalid due_date format. Use ISO8601 format'}), 400
+
+        # Create new todo
+        new_todo = {
+            'roommate_id': current_roommate['id'],
+            'title': data['title'].strip(),
+            'description': data.get('description', '').strip() or None,
+            'category': data.get('category', 'Personal'),
+            'priority': priority,
+            'due_date': due_date,
+            'chore_id': data.get('chore_id'),
+            'estimated_pomodoros': data.get('estimated_pomodoros', 1),
+            'tags': data.get('tags'),
+            'display_order': data.get('display_order', 0)
+        }
+
+        result = data_handler.add_todo_item(new_todo)
+        return jsonify(result), 201
+
+    except Exception as e:
+        app.logger.error(f"Error creating todo: {e}")
+        return jsonify({'error': 'Failed to create todo'}), 500
+
+@app.route('/api/todos/<int:todo_id>', methods=['GET'])
+@login_required
+@rate_limit('productivity')
+def get_todo(todo_id):
+    """Get a specific todo item."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Get all user's todos and find the specific one
+        todos = data_handler.get_todo_items(roommate_id=current_roommate['id'])
+        todo = next((t for t in todos if t['id'] == todo_id), None)
+
+        if not todo:
+            return jsonify({'error': 'Todo not found or access denied'}), 404
+
+        return jsonify(todo), 200
+
+    except Exception as e:
+        app.logger.error(f"Error getting todo: {e}")
+        return jsonify({'error': 'Failed to get todo'}), 500
+
+@app.route('/api/todos/<int:todo_id>', methods=['PUT'])
+@login_required
+@rate_limit('productivity')
+@csrf_protected_enhanced
+def update_todo(todo_id):
+    """Update a todo item."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Verify ownership
+        todos = data_handler.get_todo_items(roommate_id=current_roommate['id'])
+        todo = next((t for t in todos if t['id'] == todo_id), None)
+
+        if not todo:
+            return jsonify({'error': 'Todo not found or access denied'}), 404
+
+        data = request.get_json() or {}
+
+        # Validate title if provided
+        if 'title' in data and (not data['title'] or not data['title'].strip()):
+            return jsonify({'error': 'Title cannot be empty'}), 400
+
+        # Validate priority if provided
+        if 'priority' in data and data['priority'] not in ['low', 'medium', 'high', 'urgent']:
+            return jsonify({'error': 'Invalid priority. Must be low, medium, high, or urgent'}), 400
+
+        # Validate status if provided
+        if 'status' in data and data['status'] not in ['pending', 'in_progress', 'completed']:
+            return jsonify({'error': 'Invalid status. Must be pending, in_progress, or completed'}), 400
+
+        # Update the todo
+        result = data_handler.update_todo_item(todo_id, data)
+        return jsonify(result), 200
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        app.logger.error(f"Error updating todo: {e}")
+        return jsonify({'error': 'Failed to update todo'}), 500
+
+@app.route('/api/todos/<int:todo_id>', methods=['DELETE'])
+@login_required
+@rate_limit('productivity')
+@csrf_protected_enhanced
+def delete_todo(todo_id):
+    """Delete a todo item."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Verify ownership
+        todos = data_handler.get_todo_items(roommate_id=current_roommate['id'])
+        todo = next((t for t in todos if t['id'] == todo_id), None)
+
+        if not todo:
+            return jsonify({'error': 'Todo not found or access denied'}), 404
+
+        # Delete the todo
+        data_handler.delete_todo_item(todo_id)
+        return jsonify({'message': 'Todo deleted successfully'}), 200
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        app.logger.error(f"Error deleting todo: {e}")
+        return jsonify({'error': 'Failed to delete todo'}), 500
+
+@app.route('/api/todos/<int:todo_id>/complete', methods=['POST'])
+@login_required
+@rate_limit('productivity')
+@csrf_protected_enhanced
+def complete_todo(todo_id):
+    """Mark a todo as completed."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Verify ownership
+        todos = data_handler.get_todo_items(roommate_id=current_roommate['id'])
+        todo = next((t for t in todos if t['id'] == todo_id), None)
+
+        if not todo:
+            return jsonify({'error': 'Todo not found or access denied'}), 404
+
+        if todo.get('status') == 'completed':
+            return jsonify({'error': 'Todo is already completed'}), 400
+
+        # Mark as completed
+        result = data_handler.mark_todo_completed(todo_id)
+        return jsonify(result), 200
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        app.logger.error(f"Error completing todo: {e}")
+        return jsonify({'error': 'Failed to complete todo'}), 500
+
+# ----------------------------------------------------------------------------
+# Mood Entry Endpoints
+# ----------------------------------------------------------------------------
+
+@app.route('/api/mood/entries', methods=['GET'])
+@login_required
+@rate_limit('productivity')
+def get_mood_entries():
+    """Get mood entries for the current user with optional date filtering."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Get query parameters
+        start_date = request.args.get('start_date')  # ISO8601 format
+        end_date = request.args.get('end_date')  # ISO8601 format
+
+        entries = data_handler.get_mood_entries(
+            roommate_id=current_roommate['id'],
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        return jsonify(entries), 200
+
+    except Exception as e:
+        app.logger.error(f"Error getting mood entries: {e}")
+        return jsonify({'error': 'Failed to get mood entries'}), 500
+
+@app.route('/api/mood/entries', methods=['POST'])
+@login_required
+@rate_limit('productivity')
+@csrf_protected_enhanced
+def create_mood_entry():
+    """Create a new mood entry for the current user."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        data = request.get_json() or {}
+
+        # Validate required fields
+        mood_level = data.get('mood_level')
+        if mood_level is None:
+            return jsonify({'error': 'mood_level is required'}), 400
+
+        # Validate mood_level range (1-5)
+        if not isinstance(mood_level, int) or mood_level < 1 or mood_level > 5:
+            return jsonify({'error': 'mood_level must be an integer between 1 and 5'}), 400
+
+        # Validate optional levels if provided
+        for level_field in ['energy_level', 'stress_level']:
+            level = data.get(level_field)
+            if level is not None and (not isinstance(level, int) or level < 1 or level > 5):
+                return jsonify({'error': f'{level_field} must be an integer between 1 and 5'}), 400
+
+        # Validate sleep_hours if provided
+        sleep_hours = data.get('sleep_hours')
+        if sleep_hours is not None and (not isinstance(sleep_hours, (int, float)) or sleep_hours < 0 or sleep_hours > 24):
+            return jsonify({'error': 'sleep_hours must be a number between 0 and 24'}), 400
+
+        # Create new mood entry
+        new_entry = {
+            'roommate_id': current_roommate['id'],
+            'mood_level': mood_level,
+            'energy_level': data.get('energy_level'),
+            'stress_level': data.get('stress_level'),
+            'sleep_hours': sleep_hours,
+            'activities': data.get('activities'),  # Array of strings
+            'notes': data.get('notes', '').strip() or None,
+            'entry_date': data.get('entry_date', datetime.utcnow().isoformat())
+        }
+
+        result = data_handler.add_mood_entry(new_entry)
+        return jsonify(result), 201
+
+    except Exception as e:
+        app.logger.error(f"Error creating mood entry: {e}")
+        return jsonify({'error': 'Failed to create mood entry'}), 500
+
+@app.route('/api/mood/entries/<int:entry_id>', methods=['GET'])
+@login_required
+@rate_limit('productivity')
+def get_mood_entry(entry_id):
+    """Get a specific mood entry."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Get all user's entries and find the specific one
+        entries = data_handler.get_mood_entries(roommate_id=current_roommate['id'])
+        entry = next((e for e in entries if e['id'] == entry_id), None)
+
+        if not entry:
+            return jsonify({'error': 'Mood entry not found or access denied'}), 404
+
+        return jsonify(entry), 200
+
+    except Exception as e:
+        app.logger.error(f"Error getting mood entry: {e}")
+        return jsonify({'error': 'Failed to get mood entry'}), 500
+
+@app.route('/api/mood/entries/<int:entry_id>', methods=['PUT'])
+@login_required
+@rate_limit('productivity')
+@csrf_protected_enhanced
+def update_mood_entry(entry_id):
+    """Update a mood entry."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Verify ownership
+        entries = data_handler.get_mood_entries(roommate_id=current_roommate['id'])
+        entry = next((e for e in entries if e['id'] == entry_id), None)
+
+        if not entry:
+            return jsonify({'error': 'Mood entry not found or access denied'}), 404
+
+        data = request.get_json() or {}
+
+        # Validate mood_level if provided
+        if 'mood_level' in data:
+            mood_level = data['mood_level']
+            if not isinstance(mood_level, int) or mood_level < 1 or mood_level > 5:
+                return jsonify({'error': 'mood_level must be an integer between 1 and 5'}), 400
+
+        # Validate optional levels if provided
+        for level_field in ['energy_level', 'stress_level']:
+            if level_field in data:
+                level = data[level_field]
+                if level is not None and (not isinstance(level, int) or level < 1 or level > 5):
+                    return jsonify({'error': f'{level_field} must be an integer between 1 and 5'}), 400
+
+        # Validate sleep_hours if provided
+        if 'sleep_hours' in data:
+            sleep_hours = data['sleep_hours']
+            if sleep_hours is not None and (not isinstance(sleep_hours, (int, float)) or sleep_hours < 0 or sleep_hours > 24):
+                return jsonify({'error': 'sleep_hours must be a number between 0 and 24'}), 400
+
+        # Update the entry
+        result = data_handler.update_mood_entry(entry_id, data)
+        return jsonify(result), 200
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        app.logger.error(f"Error updating mood entry: {e}")
+        return jsonify({'error': 'Failed to update mood entry'}), 500
+
+@app.route('/api/mood/trends', methods=['GET'])
+@login_required
+@rate_limit('productivity')
+def get_mood_trends():
+    """Get mood trend analytics for the current user."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Get period parameter (week, month, year)
+        period = request.args.get('period', 'month')
+        if period not in ['week', 'month', 'year']:
+            return jsonify({'error': 'Invalid period. Must be week, month, or year'}), 400
+
+        trends = data_handler.get_mood_trends(current_roommate['id'], period)
+        return jsonify(trends), 200
+
+    except Exception as e:
+        app.logger.error(f"Error getting mood trends: {e}")
+        return jsonify({'error': 'Failed to get mood trends'}), 500
+
+# ----------------------------------------------------------------------------
+# Analytics Endpoints
+# ----------------------------------------------------------------------------
+
+@app.route('/api/analytics/snapshots', methods=['GET'])
+@login_required
+@rate_limit('productivity')
+def get_analytics_snapshots():
+    """Get analytics snapshots for the current user with optional date filtering."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Get query parameters
+        start_date = request.args.get('start_date')  # ISO8601 format
+        end_date = request.args.get('end_date')  # ISO8601 format
+
+        snapshots = data_handler.get_analytics_snapshots(
+            roommate_id=current_roommate['id'],
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        return jsonify(snapshots), 200
+
+    except Exception as e:
+        app.logger.error(f"Error getting analytics snapshots: {e}")
+        return jsonify({'error': 'Failed to get analytics snapshots'}), 500
+
+@app.route('/api/analytics/snapshot', methods=['POST'])
+@login_required
+@rate_limit('productivity')
+@csrf_protected_enhanced
+def create_analytics_snapshot():
+    """Create a new analytics snapshot for the current user."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        data = request.get_json() or {}
+
+        # Validate numeric fields if provided
+        numeric_fields = ['chores_completed', 'chores_assigned', 'total_points_earned',
+                         'pomodoros_completed', 'todos_completed']
+        for field in numeric_fields:
+            if field in data and not isinstance(data[field], int):
+                return jsonify({'error': f'{field} must be an integer'}), 400
+
+        # Validate float fields if provided
+        float_fields = ['avg_mood_score', 'productivity_score']
+        for field in float_fields:
+            if field in data and not isinstance(data[field], (int, float)):
+                return jsonify({'error': f'{field} must be a number'}), 400
+
+        # Create new snapshot
+        new_snapshot = {
+            'roommate_id': current_roommate['id'],
+            'snapshot_date': data.get('snapshot_date', datetime.utcnow().date().isoformat()),
+            'chores_completed': data.get('chores_completed', 0),
+            'chores_assigned': data.get('chores_assigned', 0),
+            'total_points_earned': data.get('total_points_earned', 0),
+            'pomodoros_completed': data.get('pomodoros_completed', 0),
+            'todos_completed': data.get('todos_completed', 0),
+            'avg_mood_score': data.get('avg_mood_score'),
+            'productivity_score': data.get('productivity_score')
+        }
+
+        result = data_handler.add_analytics_snapshot(new_snapshot)
+        return jsonify(result), 201
+
+    except Exception as e:
+        app.logger.error(f"Error creating analytics snapshot: {e}")
+        return jsonify({'error': 'Failed to create analytics snapshot'}), 500
+
+@app.route('/api/analytics/dashboard', methods=['GET'])
+@login_required
+@rate_limit('productivity')
+def get_analytics_dashboard():
+    """Get comprehensive analytics dashboard data for the current user."""
+    try:
+        current_roommate = session_manager.get_current_roommate()
+        if not current_roommate:
+            return jsonify({'error': 'You must be linked to a roommate to use productivity features'}), 403
+
+        # Get period parameter (week, month)
+        period = request.args.get('period', 'week')
+        if period not in ['week', 'month']:
+            return jsonify({'error': 'Invalid period. Must be week or month'}), 400
+
+        # Aggregate data from multiple sources
+        roommate_id = current_roommate['id']
+
+        # Get Pomodoro stats
+        pomodoro_stats = data_handler.get_pomodoro_stats(roommate_id, period)
+
+        # Get mood trends
+        mood_trends = data_handler.get_mood_trends(roommate_id, period)
+
+        # Get recent analytics snapshots
+        end_date = datetime.utcnow().date().isoformat()
+        if period == 'week':
+            start_date = (datetime.utcnow().date() - timedelta(days=7)).isoformat()
+        else:  # month
+            start_date = (datetime.utcnow().date() - timedelta(days=30)).isoformat()
+
+        snapshots = data_handler.get_analytics_snapshots(
+            roommate_id=roommate_id,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        # Get current assignments for chore stats
+        all_assignments = data_handler.get_current_assignments()
+        user_assignments = [a for a in all_assignments if a.get('roommate_id') == roommate_id]
+
+        # Calculate aggregate stats
+        total_chores_assigned = len(user_assignments)
+        completed_chores = len([a for a in user_assignments if a.get('completed')])
+
+        # Get recent todos
+        all_todos = data_handler.get_todo_items(roommate_id=roommate_id)
+        pending_todos = [t for t in all_todos if t.get('status') in ['pending', 'in_progress']]
+        completed_todos_count = len([t for t in all_todos if t.get('status') == 'completed'])
+
+        # Build comprehensive dashboard response
+        dashboard = {
+            'period': period,
+            'current_cycle': {
+                'chores_assigned': total_chores_assigned,
+                'chores_completed': completed_chores,
+                'completion_rate': (completed_chores / total_chores_assigned * 100) if total_chores_assigned > 0 else 0,
+                'pending_todos': len(pending_todos),
+                'completed_todos': completed_todos_count
+            },
+            'pomodoro': pomodoro_stats,
+            'mood': mood_trends,
+            'snapshots': snapshots,
+            'insights': {
+                'most_productive_day': None,  # Could be calculated from snapshots
+                'avg_daily_pomodoros': pomodoro_stats.get('total_sessions', 0) / (7 if period == 'week' else 30),
+                'mood_productivity_correlation': None  # Could calculate correlation if both datasets exist
+            }
+        }
+
+        return jsonify(dashboard), 200
+
+    except Exception as e:
+        app.logger.error(f"Error getting analytics dashboard: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to get analytics dashboard'}), 500
 
 # Catch-all route to serve React SPA
 # NOTE: These routes do NOT have @login_required because they serve the frontend.

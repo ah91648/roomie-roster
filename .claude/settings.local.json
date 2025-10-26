@@ -111,7 +111,9 @@
       "Bash(for i in {1..6})",
       "Bash(do echo \"Attempt $i:\")",
       "Bash(done)",
-      "SlashCommand(/selenium)"
+      "SlashCommand(/selenium)",
+      "mcp__render__get_selected_workspace",
+      "Bash(pytest:*)"
     ],
     "deny": []
   },

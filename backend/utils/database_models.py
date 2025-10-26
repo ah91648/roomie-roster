@@ -1,6 +1,7 @@
 """
-SQLAlchemy models for RoomieRoster application.
+SQL Alchemy models for Zeith application.
 These models mirror the JSON data structure for seamless migration.
+Includes household management and personal productivity tracking.
 """
 
 from datetime import datetime
@@ -423,4 +424,193 @@ class CalendarSyncStatus(Base):
             'has_refresh_token': self.has_refresh_token,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_updated': self.last_updated.isoformat() if self.last_updated else None
+        }
+
+
+# ============================================================================
+# PRODUCTIVITY FEATURE MODELS (ZEITH)
+# ============================================================================
+
+
+class PomodoroSession(Base):
+    """Pomodoro focus session model for productivity tracking"""
+    __tablename__ = 'pomodoro_sessions'
+
+    id = Column(Integer, primary_key=True)
+    roommate_id = Column(Integer, ForeignKey('roommates.id'), nullable=False)
+    start_time = Column(DateTime, default=datetime.utcnow, nullable=False)
+    end_time = Column(DateTime, nullable=True)
+    planned_duration_minutes = Column(Integer, default=25, nullable=False)
+    actual_duration_minutes = Column(Integer, nullable=True)
+    session_type = Column(String(20), default='focus', nullable=False)  # focus, short_break, long_break
+    status = Column(String(20), default='in_progress', nullable=False)  # in_progress, completed, interrupted
+    chore_id = Column(Integer, ForeignKey('chores.id'), nullable=True)
+    todo_id = Column(Integer, ForeignKey('todo_items.id'), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    roommate = relationship("Roommate", backref="pomodoro_sessions")
+    chore = relationship("Chore", backref="pomodoro_sessions")
+    todo = relationship("TodoItem", backref="pomodoro_sessions", foreign_keys=[todo_id])
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary matching JSON structure"""
+        return {
+            'id': self.id,
+            'roommate_id': self.roommate_id,
+            'start_time': self.start_time.isoformat() if self.start_time else None,
+            'end_time': self.end_time.isoformat() if self.end_time else None,
+            'planned_duration_minutes': self.planned_duration_minutes,
+            'actual_duration_minutes': self.actual_duration_minutes,
+            'session_type': self.session_type,
+            'status': self.status,
+            'chore_id': self.chore_id,
+            'todo_id': self.todo_id,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class TodoItem(Base):
+    """Personal to-do list item model (separate from household chores)"""
+    __tablename__ = 'todo_items'
+
+    id = Column(Integer, primary_key=True)
+    roommate_id = Column(Integer, ForeignKey('roommates.id'), nullable=False)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(50), default='Personal', nullable=False)
+    priority = Column(String(20), default='medium', nullable=False)  # low, medium, high, urgent
+    status = Column(String(20), default='pending', nullable=False)  # pending, in_progress, completed
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    due_date = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    chore_id = Column(Integer, ForeignKey('chores.id'), nullable=True)
+    estimated_pomodoros = Column(Integer, default=1, nullable=True)
+    actual_pomodoros = Column(Integer, default=0, nullable=False)
+    tags = Column(JSON, nullable=True)
+    display_order = Column(Integer, default=0, nullable=False)
+
+    # Relationships
+    roommate = relationship("Roommate", backref="todo_items")
+    chore = relationship("Chore", backref="todo_items")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary matching JSON structure"""
+        return {
+            'id': self.id,
+            'roommate_id': self.roommate_id,
+            'title': self.title,
+            'description': self.description,
+            'category': self.category,
+            'priority': self.priority,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'due_date': self.due_date.isoformat() if self.due_date else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'chore_id': self.chore_id,
+            'estimated_pomodoros': self.estimated_pomodoros,
+            'actual_pomodoros': self.actual_pomodoros,
+            'tags': self.tags,
+            'display_order': self.display_order
+        }
+
+
+class MoodEntry(Base):
+    """Mood journal entry model for productivity correlation analysis"""
+    __tablename__ = 'mood_entries'
+
+    id = Column(Integer, primary_key=True)
+    roommate_id = Column(Integer, ForeignKey('roommates.id'), nullable=False)
+    entry_date = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    mood_level = Column(Integer, nullable=False)  # 1-5 scale
+    energy_level = Column(Integer, nullable=True)
+    stress_level = Column(Integer, nullable=True)
+    focus_level = Column(Integer, nullable=True)
+    mood_emoji = Column(String(10), nullable=True)
+    mood_label = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+    tags = Column(JSON, nullable=True)
+    sleep_hours = Column(Float, nullable=True)
+    exercise_minutes = Column(Integer, nullable=True)
+
+    # Relationships
+    roommate = relationship("Roommate", backref="mood_entries")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary matching JSON structure"""
+        return {
+            'id': self.id,
+            'roommate_id': self.roommate_id,
+            'entry_date': self.entry_date.isoformat() if self.entry_date else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'mood_level': self.mood_level,
+            'energy_level': self.energy_level,
+            'stress_level': self.stress_level,
+            'focus_level': self.focus_level,
+            'mood_emoji': self.mood_emoji,
+            'mood_label': self.mood_label,
+            'notes': self.notes,
+            'tags': self.tags,
+            'sleep_hours': self.sleep_hours,
+            'exercise_minutes': self.exercise_minutes
+        }
+
+
+class AnalyticsSnapshot(Base):
+    """Daily analytics snapshot model for historical tracking and trends"""
+    __tablename__ = 'analytics_snapshots'
+
+    id = Column(Integer, primary_key=True)
+    snapshot_date = Column(DateTime, default=datetime.utcnow, nullable=False)
+    roommate_id = Column(Integer, ForeignKey('roommates.id'), nullable=True)  # NULL for household-wide
+    chores_completed = Column(Integer, default=0, nullable=False)
+    chores_assigned = Column(Integer, default=0, nullable=False)
+    total_points_earned = Column(Integer, default=0, nullable=False)
+    pomodoros_completed = Column(Integer, default=0, nullable=False)
+    focus_time_minutes = Column(Integer, default=0, nullable=False)
+    todos_completed = Column(Integer, default=0, nullable=False)
+    todos_created = Column(Integer, default=0, nullable=False)
+    average_mood = Column(Float, nullable=True)
+    average_energy = Column(Float, nullable=True)
+    average_stress = Column(Float, nullable=True)
+    average_focus = Column(Float, nullable=True)
+    mood_entries_count = Column(Integer, default=0, nullable=False)
+    total_household_points = Column(Integer, nullable=True)
+    fairness_score = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    roommate = relationship("Roommate", backref="analytics_snapshots")
+
+    # Indexes
+    __table_args__ = (
+        db.Index('idx_snapshot_date_roommate', 'snapshot_date', 'roommate_id'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary matching JSON structure"""
+        return {
+            'id': self.id,
+            'snapshot_date': self.snapshot_date.isoformat() if self.snapshot_date else None,
+            'roommate_id': self.roommate_id,
+            'chores_completed': self.chores_completed,
+            'chores_assigned': self.chores_assigned,
+            'total_points_earned': self.total_points_earned,
+            'pomodoros_completed': self.pomodoros_completed,
+            'focus_time_minutes': self.focus_time_minutes,
+            'todos_completed': self.todos_completed,
+            'todos_created': self.todos_created,
+            'average_mood': self.average_mood,
+            'average_energy': self.average_energy,
+            'average_stress': self.average_stress,
+            'average_focus': self.average_focus,
+            'mood_entries_count': self.mood_entries_count,
+            'total_household_points': self.total_household_points,
+            'fairness_score': self.fairness_score,
+            'created_at': self.created_at.isoformat() if self.created_at else None
         }

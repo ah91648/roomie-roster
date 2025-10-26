@@ -211,4 +211,113 @@ export const stateAPI = {
   health: () => api.get('/health'),
 };
 
+// Pomodoro API (6 endpoints)
+export const pomodoroAPI = {
+  // Start a new Pomodoro session
+  start: (sessionData) => api.post('/pomodoro/start', sessionData),
+
+  // Complete an active session
+  complete: (sessionId, notes = null) => api.post('/pomodoro/complete', {
+    session_id: sessionId,
+    notes
+  }),
+
+  // Pause an in-progress session
+  pause: (sessionId, notes = null) => api.post(`/pomodoro/${sessionId}/pause`, { notes }),
+
+  // Get current active session
+  getActive: () => api.get('/pomodoro/active'),
+
+  // Get session history with optional filters
+  getHistory: (params = {}) => {
+    const queryParams = new URLSearchParams();
+    if (params.status) queryParams.append('status', params.status);
+    if (params.session_type) queryParams.append('session_type', params.session_type);
+    if (params.start_date) queryParams.append('start_date', params.start_date);
+    if (params.end_date) queryParams.append('end_date', params.end_date);
+    if (params.limit) queryParams.append('limit', params.limit);
+
+    const queryString = queryParams.toString();
+    return api.get(`/pomodoro/history${queryString ? `?${queryString}` : ''}`);
+  },
+
+  // Get Pomodoro statistics
+  getStats: (period = 'week') => api.get(`/pomodoro/stats?period=${period}`),
+};
+
+// Todo API (6 endpoints)
+export const todoAPI = {
+  // Get all todos with optional filters
+  getAll: (params = {}) => {
+    const queryParams = new URLSearchParams();
+    if (params.status) queryParams.append('status', params.status);
+    if (params.category) queryParams.append('category', params.category);
+    if (params.priority) queryParams.append('priority', params.priority);
+
+    const queryString = queryParams.toString();
+    return api.get(`/todos${queryString ? `?${queryString}` : ''}`);
+  },
+
+  // Create a new todo
+  create: (todoData) => api.post('/todos', todoData),
+
+  // Get a specific todo by ID
+  getOne: (id) => api.get(`/todos/${id}`),
+
+  // Update a todo
+  update: (id, todoData) => api.put(`/todos/${id}`, todoData),
+
+  // Delete a todo
+  delete: (id) => api.delete(`/todos/${id}`),
+
+  // Mark todo as completed
+  complete: (id, notes = null) => api.post(`/todos/${id}/complete`, { notes }),
+};
+
+// Mood API (5 endpoints)
+export const moodAPI = {
+  // Get mood entries with optional date range
+  getEntries: (params = {}) => {
+    const queryParams = new URLSearchParams();
+    if (params.start_date) queryParams.append('start_date', params.start_date);
+    if (params.end_date) queryParams.append('end_date', params.end_date);
+    if (params.limit) queryParams.append('limit', params.limit);
+
+    const queryString = queryParams.toString();
+    return api.get(`/mood/entries${queryString ? `?${queryString}` : ''}`);
+  },
+
+  // Create a new mood entry
+  create: (moodData) => api.post('/mood/entries', moodData),
+
+  // Get a specific mood entry by ID
+  getOne: (id) => api.get(`/mood/entries/${id}`),
+
+  // Update a mood entry
+  update: (id, moodData) => api.put(`/mood/entries/${id}`, moodData),
+
+  // Get mood trends
+  getTrends: (period = 'week') => api.get(`/mood/trends?period=${period}`),
+};
+
+// Analytics API (3 endpoints)
+export const analyticsAPI = {
+  // Get analytics snapshots
+  getSnapshots: (params = {}) => {
+    const queryParams = new URLSearchParams();
+    if (params.start_date) queryParams.append('start_date', params.start_date);
+    if (params.end_date) queryParams.append('end_date', params.end_date);
+    if (params.limit) queryParams.append('limit', params.limit);
+
+    const queryString = queryParams.toString();
+    return api.get(`/analytics/snapshots${queryString ? `?${queryString}` : ''}`);
+  },
+
+  // Create a daily analytics snapshot
+  createSnapshot: () => api.post('/analytics/snapshot'),
+
+  // Get comprehensive analytics dashboard
+  getDashboard: (period = 'week') => api.get(`/analytics/dashboard?period=${period}`),
+};
+
 export default api;

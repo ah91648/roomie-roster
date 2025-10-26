@@ -103,21 +103,84 @@ class TestDataHandlerParity:
             error_msg += f"{'='*80}\n"
             pytest.fail(error_msg)
 
+    def test_productivity_methods_exist(self):
+        """Verify that DatabaseDataHandler implements all 17 Zeith productivity methods."""
+        db_handler_methods = self.get_public_methods(DatabaseDataHandler)
+
+        # Expected productivity methods (Zeith transformation features)
+        expected_productivity_methods = [
+            # Pomodoro methods (6)
+            'get_pomodoro_sessions',
+            'get_active_pomodoro_session',
+            'add_pomodoro_session',
+            'update_pomodoro_session',
+            'complete_pomodoro_session',
+            'get_pomodoro_stats',
+            # Todo methods (5)
+            'get_todo_items',
+            'add_todo_item',
+            'update_todo_item',
+            'delete_todo_item',
+            'mark_todo_completed',
+            # Mood methods (4)
+            'get_mood_entries',
+            'add_mood_entry',
+            'update_mood_entry',
+            'get_mood_trends',
+            # Analytics methods (2)
+            'get_analytics_snapshots',
+            'add_analytics_snapshot',
+        ]
+
+        missing_productivity_methods = []
+        for method_name in expected_productivity_methods:
+            if method_name not in db_handler_methods:
+                missing_productivity_methods.append(method_name)
+
+        if missing_productivity_methods:
+            error_msg = f"\n\n{'='*80}\n"
+            error_msg += f"MISSING ZEITH PRODUCTIVITY METHODS\n"
+            error_msg += f"{'='*80}\n\n"
+            error_msg += f"DatabaseDataHandler is missing {len(missing_productivity_methods)}/17 Zeith productivity methods\n\n"
+            error_msg += f"Missing methods:\n"
+            for i, method in enumerate(sorted(missing_productivity_methods), 1):
+                error_msg += f"  {i}. {method}()\n"
+            error_msg += f"\n{'='*80}\n"
+            pytest.fail(error_msg)
+        else:
+            print(f"\n✅ All 17 Zeith productivity methods are implemented in DatabaseDataHandler")
+
     def test_no_extra_methods(self):
         """Verify that DatabaseDataHandler doesn't have unexpected extra public methods."""
         data_handler_methods = self.get_public_methods(DataHandler)
         db_handler_methods = self.get_public_methods(DatabaseDataHandler)
 
+        # Known extra methods (Zeith productivity features)
+        expected_extra_methods = {
+            'get_pomodoro_sessions', 'get_active_pomodoro_session', 'add_pomodoro_session',
+            'update_pomodoro_session', 'complete_pomodoro_session', 'get_pomodoro_stats',
+            'get_todo_items', 'add_todo_item', 'update_todo_item', 'delete_todo_item',
+            'mark_todo_completed', 'get_mood_entries', 'add_mood_entry', 'update_mood_entry',
+            'get_mood_trends', 'get_analytics_snapshots', 'add_analytics_snapshot'
+        }
+
         extra_methods = []
+        unexpected_extra_methods = []
         for method_name in db_handler_methods:
             if method_name not in data_handler_methods:
                 extra_methods.append(method_name)
+                if method_name not in expected_extra_methods:
+                    unexpected_extra_methods.append(method_name)
 
         # Extra methods are informational, not an error
         if extra_methods:
             print(f"\nINFO: DatabaseDataHandler has {len(extra_methods)} additional methods:")
-            for method in sorted(extra_methods):
-                print(f"  - {method}")
+            print(f"  - Expected (Zeith productivity): {len(expected_extra_methods)}")
+            print(f"  - Unexpected: {len(unexpected_extra_methods)}")
+            if unexpected_extra_methods:
+                print(f"\nUnexpected extra methods:")
+                for method in sorted(unexpected_extra_methods):
+                    print(f"  - {method}")
 
     def test_parity_report_generation(self):
         """Generate a comprehensive parity report for documentation."""

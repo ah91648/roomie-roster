@@ -7,7 +7,7 @@ Falls back to JSON files when database is not configured.
 import json
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 from sqlalchemy.exc import SQLAlchemyError
@@ -17,7 +17,9 @@ from sqlalchemy.orm.attributes import flag_modified
 from .database_config import db, database_config
 from .database_models import (
     Roommate, Chore, SubChore, Assignment, ApplicationState,
-    ShoppingItem, Request, LaundrySlot, BlockedTimeSlot, CalendarSyncStatus
+    ShoppingItem, Request, LaundrySlot, BlockedTimeSlot, CalendarSyncStatus,
+    # Zeith productivity models
+    PomodoroSession, TodoItem, MoodEntry, AnalyticsSnapshot
 )
 
 class DatabaseDataHandler:
@@ -41,6 +43,11 @@ class DatabaseDataHandler:
             self.requests_file = self.data_dir / "requests.json"
             self.laundry_slots_file = self.data_dir / "laundry_slots.json"
             self.blocked_time_slots_file = self.data_dir / "blocked_time_slots.json"
+            # Zeith productivity feature files
+            self.pomodoro_sessions_file = self.data_dir / "pomodoro_sessions.json"
+            self.todo_items_file = self.data_dir / "todo_items.json"
+            self.mood_entries_file = self.data_dir / "mood_entries.json"
+            self.analytics_snapshots_file = self.data_dir / "analytics_snapshots.json"
             self._initialize_json_files()
         
         self.logger.info(f"DataHandler initialized with {'PostgreSQL' if self.use_database else 'JSON file'} storage")
@@ -69,9 +76,22 @@ class DatabaseDataHandler:
         
         if not self.laundry_slots_file.exists():
             self._write_json(self.laundry_slots_file, [])
-        
+
         if not self.blocked_time_slots_file.exists():
             self._write_json(self.blocked_time_slots_file, [])
+
+        # Zeith productivity feature files
+        if not self.pomodoro_sessions_file.exists():
+            self._write_json(self.pomodoro_sessions_file, [])
+
+        if not self.todo_items_file.exists():
+            self._write_json(self.todo_items_file, [])
+
+        if not self.mood_entries_file.exists():
+            self._write_json(self.mood_entries_file, [])
+
+        if not self.analytics_snapshots_file.exists():
+            self._write_json(self.analytics_snapshots_file, [])
     
     def _read_json(self, filepath: Path) -> Any:
         """Read JSON data from file (fallback mode)."""
@@ -2382,3 +2402,443 @@ class DatabaseDataHandler:
         """Check if a specific time slot is blocked."""
         conflicts = self.check_blocked_time_conflicts(date, time_slot)
         return len(conflicts) > 0
+
+    # ============================================================================
+    # PRODUCTIVITY FEATURE METHODS (ZEITH)
+    # ============================================================================
+
+    # Pomodoro Sessions operations
+    def get_pomodoro_sessions(self, roommate_id: int = None, status: str = None, start_date: str = None) -> List[Dict]:
+        """Get pomodoro sessions with optional filtering."""
+        if self.use_database:
+            try:
+                query = PomodoroSession.query
+
+                if roommate_id:
+                    query = query.filter_by(roommate_id=roommate_id)
+                if status:
+                    query = query.filter_by(status=status)
+                if start_date:
+                    date_obj = datetime.fromisoformat(start_date) if isinstance(start_date, str) else start_date
+                    query = query.filter(PomodoroSession.start_time >= date_obj)
+
+                sessions = query.order_by(PomodoroSession.start_time.desc()).all()
+                return [session.to_dict() for session in sessions]
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error getting pomodoro sessions: {e}")
+                return []
+        else:
+            sessions = self._read_json(self.pomodoro_sessions_file)
+            if roommate_id:
+                sessions = [s for s in sessions if s.get('roommate_id') == roommate_id]
+            if status:
+                sessions = [s for s in sessions if s.get('status') == status]
+            if start_date:
+                sessions = [s for s in sessions if s.get('start_time', '') >= start_date]
+            return sessions
+
+    def get_active_pomodoro_session(self, roommate_id: int) -> Optional[Dict]:
+        """Get the currently active pomodoro session for a roommate."""
+        sessions = self.get_pomodoro_sessions(roommate_id=roommate_id, status='in_progress')
+        return sessions[0] if sessions else None
+
+    def add_pomodoro_session(self, session: Dict) -> Dict:
+        """Add a new pomodoro session."""
+        if self.use_database:
+            try:
+                new_session = PomodoroSession(
+                    roommate_id=session['roommate_id'],
+                    start_time=datetime.fromisoformat(session['start_time']) if isinstance(session.get('start_time'), str) else session.get('start_time', datetime.utcnow()),
+                    planned_duration_minutes=session.get('planned_duration_minutes', 25),
+                    session_type=session.get('session_type', 'focus'),
+                    chore_id=session.get('chore_id'),
+                    todo_id=session.get('todo_id'),
+                    notes=session.get('notes')
+                )
+                db.session.add(new_session)
+                db.session.commit()
+                return new_session.to_dict()
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error adding pomodoro session: {e}")
+                db.session.rollback()
+                raise
+        else:
+            sessions = self.get_pomodoro_sessions()
+            session['id'] = max([s['id'] for s in sessions], default=0) + 1
+            sessions.append(session)
+            self._write_json(self.pomodoro_sessions_file, sessions)
+            return session
+
+    def update_pomodoro_session(self, session_id: int, updated_session: Dict) -> Dict:
+        """Update an existing pomodoro session."""
+        if self.use_database:
+            try:
+                session = PomodoroSession.query.filter_by(id=session_id).first()
+                if not session:
+                    raise ValueError(f"Pomodoro session with id {session_id} not found")
+
+                if 'end_time' in updated_session:
+                    session.end_time = datetime.fromisoformat(updated_session['end_time']) if isinstance(updated_session['end_time'], str) else updated_session['end_time']
+                if 'actual_duration_minutes' in updated_session:
+                    session.actual_duration_minutes = updated_session['actual_duration_minutes']
+                if 'status' in updated_session:
+                    session.status = updated_session['status']
+                if 'notes' in updated_session:
+                    session.notes = updated_session['notes']
+
+                db.session.commit()
+                return session.to_dict()
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error updating pomodoro session: {e}")
+                db.session.rollback()
+                raise
+        else:
+            sessions = self.get_pomodoro_sessions()
+            for i, s in enumerate(sessions):
+                if s['id'] == session_id:
+                    sessions[i].update(updated_session)
+                    self._write_json(self.pomodoro_sessions_file, sessions)
+                    return sessions[i]
+            raise ValueError(f"Pomodoro session with id {session_id} not found")
+
+    def complete_pomodoro_session(self, session_id: int, notes: str = None) -> Dict:
+        """Mark a pomodoro session as completed."""
+        updated_data = {
+            'status': 'completed',
+            'end_time': datetime.utcnow().isoformat(),
+            'actual_duration_minutes': None  # Will be calculated in update
+        }
+        if notes:
+            updated_data['notes'] = notes
+        return self.update_pomodoro_session(session_id, updated_data)
+
+    def get_pomodoro_stats(self, roommate_id: int, period: str = 'week') -> Dict:
+        """Get pomodoro statistics for a roommate."""
+        # Calculate date range based on period
+        now = datetime.utcnow()
+        if period == 'day':
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif period == 'week':
+            start_date = now - timedelta(days=7)
+        elif period == 'month':
+            start_date = now - timedelta(days=30)
+        elif period == 'year':
+            start_date = now - timedelta(days=365)
+        else:
+            start_date = now - timedelta(days=7)  # Default to week
+
+        sessions = self.get_pomodoro_sessions(
+            roommate_id=roommate_id,
+            start_date=start_date.isoformat()
+        )
+
+        completed_sessions = [s for s in sessions if s.get('status') == 'completed']
+        total_focus_time = sum(s.get('actual_duration_minutes', 0) for s in completed_sessions)
+
+        return {
+            'total_sessions': len(sessions),
+            'completed_sessions': len(completed_sessions),
+            'interrupted_sessions': len([s for s in sessions if s.get('status') == 'interrupted']),
+            'total_focus_time_minutes': total_focus_time,
+            'average_session_length': total_focus_time / len(completed_sessions) if completed_sessions else 0,
+            'period': period
+        }
+
+    # Todo Items operations
+    def get_todo_items(self, roommate_id: int = None, status: str = None, category: str = None) -> List[Dict]:
+        """Get todo items with optional filtering."""
+        if self.use_database:
+            try:
+                query = TodoItem.query
+
+                if roommate_id:
+                    query = query.filter_by(roommate_id=roommate_id)
+                if status:
+                    query = query.filter_by(status=status)
+                if category:
+                    query = query.filter_by(category=category)
+
+                items = query.order_by(TodoItem.display_order, TodoItem.created_at.desc()).all()
+                return [item.to_dict() for item in items]
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error getting todo items: {e}")
+                return []
+        else:
+            items = self._read_json(self.todo_items_file)
+            if roommate_id:
+                items = [i for i in items if i.get('roommate_id') == roommate_id]
+            if status:
+                items = [i for i in items if i.get('status') == status]
+            if category:
+                items = [i for i in items if i.get('category') == category]
+            return items
+
+    def add_todo_item(self, item: Dict) -> Dict:
+        """Add a new todo item."""
+        if self.use_database:
+            try:
+                new_item = TodoItem(
+                    roommate_id=item['roommate_id'],
+                    title=item['title'],
+                    description=item.get('description'),
+                    category=item.get('category', 'Personal'),
+                    priority=item.get('priority', 'medium'),
+                    due_date=datetime.fromisoformat(item['due_date']) if item.get('due_date') and isinstance(item['due_date'], str) else item.get('due_date'),
+                    chore_id=item.get('chore_id'),
+                    estimated_pomodoros=item.get('estimated_pomodoros', 1),
+                    tags=item.get('tags'),
+                    display_order=item.get('display_order', 0)
+                )
+                db.session.add(new_item)
+                db.session.commit()
+                return new_item.to_dict()
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error adding todo item: {e}")
+                db.session.rollback()
+                raise
+        else:
+            items = self.get_todo_items()
+            item['id'] = max([i['id'] for i in items], default=0) + 1
+            item['created_at'] = datetime.utcnow().isoformat()
+            item['status'] = item.get('status', 'pending')
+            item['actual_pomodoros'] = 0
+            items.append(item)
+            self._write_json(self.todo_items_file, items)
+            return item
+
+    def update_todo_item(self, item_id: int, updated_item: Dict) -> Dict:
+        """Update an existing todo item."""
+        if self.use_database:
+            try:
+                item = TodoItem.query.filter_by(id=item_id).first()
+                if not item:
+                    raise ValueError(f"Todo item with id {item_id} not found")
+
+                for key, value in updated_item.items():
+                    if key in ['due_date', 'completed_at'] and value and isinstance(value, str):
+                        value = datetime.fromisoformat(value)
+                    if hasattr(item, key):
+                        setattr(item, key, value)
+
+                db.session.commit()
+                return item.to_dict()
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error updating todo item: {e}")
+                db.session.rollback()
+                raise
+        else:
+            items = self.get_todo_items()
+            for i, todo in enumerate(items):
+                if todo['id'] == item_id:
+                    items[i].update(updated_item)
+                    self._write_json(self.todo_items_file, items)
+                    return items[i]
+            raise ValueError(f"Todo item with id {item_id} not found")
+
+    def delete_todo_item(self, item_id: int):
+        """Delete a todo item."""
+        if self.use_database:
+            try:
+                item = TodoItem.query.filter_by(id=item_id).first()
+                if not item:
+                    raise ValueError(f"Todo item with id {item_id} not found")
+
+                db.session.delete(item)
+                db.session.commit()
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error deleting todo item: {e}")
+                db.session.rollback()
+                raise
+        else:
+            items = self.get_todo_items()
+            original_count = len(items)
+            items = [i for i in items if i['id'] != item_id]
+            if len(items) == original_count:
+                raise ValueError(f"Todo item with id {item_id} not found")
+            self._write_json(self.todo_items_file, items)
+
+    def mark_todo_completed(self, item_id: int) -> Dict:
+        """Mark a todo item as completed."""
+        return self.update_todo_item(item_id, {
+            'status': 'completed',
+            'completed_at': datetime.utcnow().isoformat()
+        })
+
+    # Mood Entries operations
+    def get_mood_entries(self, roommate_id: int = None, start_date: str = None, end_date: str = None) -> List[Dict]:
+        """Get mood entries with optional filtering."""
+        if self.use_database:
+            try:
+                query = MoodEntry.query
+
+                if roommate_id:
+                    query = query.filter_by(roommate_id=roommate_id)
+                if start_date:
+                    date_obj = datetime.fromisoformat(start_date) if isinstance(start_date, str) else start_date
+                    query = query.filter(MoodEntry.entry_date >= date_obj)
+                if end_date:
+                    date_obj = datetime.fromisoformat(end_date) if isinstance(end_date, str) else end_date
+                    query = query.filter(MoodEntry.entry_date <= date_obj)
+
+                entries = query.order_by(MoodEntry.entry_date.desc()).all()
+                return [entry.to_dict() for entry in entries]
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error getting mood entries: {e}")
+                return []
+        else:
+            entries = self._read_json(self.mood_entries_file)
+            if roommate_id:
+                entries = [e for e in entries if e.get('roommate_id') == roommate_id]
+            if start_date:
+                entries = [e for e in entries if e.get('entry_date', '') >= start_date]
+            if end_date:
+                entries = [e for e in entries if e.get('entry_date', '') <= end_date]
+            return entries
+
+    def add_mood_entry(self, entry: Dict) -> Dict:
+        """Add a new mood entry."""
+        if self.use_database:
+            try:
+                new_entry = MoodEntry(
+                    roommate_id=entry['roommate_id'],
+                    mood_level=entry['mood_level'],
+                    energy_level=entry.get('energy_level'),
+                    stress_level=entry.get('stress_level'),
+                    focus_level=entry.get('focus_level'),
+                    mood_emoji=entry.get('mood_emoji'),
+                    mood_label=entry.get('mood_label'),
+                    notes=entry.get('notes'),
+                    tags=entry.get('tags'),
+                    sleep_hours=entry.get('sleep_hours'),
+                    exercise_minutes=entry.get('exercise_minutes'),
+                    entry_date=datetime.fromisoformat(entry['entry_date']) if entry.get('entry_date') and isinstance(entry['entry_date'], str) else datetime.utcnow()
+                )
+                db.session.add(new_entry)
+                db.session.commit()
+                return new_entry.to_dict()
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error adding mood entry: {e}")
+                db.session.rollback()
+                raise
+        else:
+            entries = self.get_mood_entries()
+            entry['id'] = max([e['id'] for e in entries], default=0) + 1
+            entry['created_at'] = datetime.utcnow().isoformat()
+            entry['updated_at'] = entry['created_at']
+            entries.append(entry)
+            self._write_json(self.mood_entries_file, entries)
+            return entry
+
+    def update_mood_entry(self, entry_id: int, updated_entry: Dict) -> Dict:
+        """Update an existing mood entry."""
+        if self.use_database:
+            try:
+                entry = MoodEntry.query.filter_by(id=entry_id).first()
+                if not entry:
+                    raise ValueError(f"Mood entry with id {entry_id} not found")
+
+                for key, value in updated_entry.items():
+                    if hasattr(entry, key):
+                        setattr(entry, key, value)
+
+                entry.updated_at = datetime.utcnow()
+                db.session.commit()
+                return entry.to_dict()
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error updating mood entry: {e}")
+                db.session.rollback()
+                raise
+        else:
+            entries = self.get_mood_entries()
+            for i, e in enumerate(entries):
+                if e['id'] == entry_id:
+                    entries[i].update(updated_entry)
+                    entries[i]['updated_at'] = datetime.utcnow().isoformat()
+                    self._write_json(self.mood_entries_file, entries)
+                    return entries[i]
+            raise ValueError(f"Mood entry with id {entry_id} not found")
+
+    def get_mood_trends(self, roommate_id: int, period: str = 'month') -> Dict:
+        """Get mood trend statistics for a roommate."""
+        now = datetime.utcnow()
+        if period == 'week':
+            start_date = now - timedelta(days=7)
+        elif period == 'month':
+            start_date = now - timedelta(days=30)
+        elif period == 'year':
+            start_date = now - timedelta(days=365)
+        else:
+            start_date = now - timedelta(days=30)
+
+        entries = self.get_mood_entries(
+            roommate_id=roommate_id,
+            start_date=start_date.isoformat()
+        )
+
+        if not entries:
+            return {'period': period, 'average_mood': 0, 'entry_count': 0}
+
+        avg_mood = sum(e.get('mood_level', 0) for e in entries) / len(entries)
+        avg_energy = sum(e.get('energy_level', 0) for e in entries if e.get('energy_level')) / len([e for e in entries if e.get('energy_level')]) if any(e.get('energy_level') for e in entries) else 0
+        avg_stress = sum(e.get('stress_level', 0) for e in entries if e.get('stress_level')) / len([e for e in entries if e.get('stress_level')]) if any(e.get('stress_level') for e in entries) else 0
+
+        return {
+            'period': period,
+            'entry_count': len(entries),
+            'average_mood': round(avg_mood, 1),
+            'average_energy': round(avg_energy, 1) if avg_energy else None,
+            'average_stress': round(avg_stress, 1) if avg_stress else None,
+            'best_day': max(entries, key=lambda e: e.get('mood_level', 0))['entry_date'] if entries else None,
+            'worst_day': min(entries, key=lambda e: e.get('mood_level', 0))['entry_date'] if entries else None
+        }
+
+    # Analytics Snapshots operations
+    def get_analytics_snapshots(self, roommate_id: int = None, start_date: str = None, end_date: str = None) -> List[Dict]:
+        """Get analytics snapshots with optional filtering."""
+        if self.use_database:
+            try:
+                query = AnalyticsSnapshot.query
+
+                if roommate_id is not None:
+                    query = query.filter_by(roommate_id=roommate_id)
+                if start_date:
+                    date_obj = datetime.fromisoformat(start_date).date() if isinstance(start_date, str) else start_date
+                    query = query.filter(AnalyticsSnapshot.snapshot_date >= date_obj)
+                if end_date:
+                    date_obj = datetime.fromisoformat(end_date).date() if isinstance(end_date, str) else end_date
+                    query = query.filter(AnalyticsSnapshot.snapshot_date <= date_obj)
+
+                snapshots = query.order_by(AnalyticsSnapshot.snapshot_date.desc()).all()
+                return [snapshot.to_dict() for snapshot in snapshots]
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error getting analytics snapshots: {e}")
+                return []
+        else:
+            snapshots = self._read_json(self.analytics_snapshots_file)
+            if roommate_id is not None:
+                snapshots = [s for s in snapshots if s.get('roommate_id') == roommate_id]
+            if start_date:
+                snapshots = [s for s in snapshots if s.get('snapshot_date', '') >= start_date]
+            if end_date:
+                snapshots = [s for s in snapshots if s.get('snapshot_date', '') <= end_date]
+            return snapshots
+
+    def add_analytics_snapshot(self, snapshot: Dict) -> Dict:
+        """Add a new analytics snapshot."""
+        if self.use_database:
+            try:
+                new_snapshot = AnalyticsSnapshot(**snapshot)
+                db.session.add(new_snapshot)
+                db.session.commit()
+                return new_snapshot.to_dict()
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error adding analytics snapshot: {e}")
+                db.session.rollback()
+                raise
+        else:
+            snapshots = self.get_analytics_snapshots()
+            snapshot['id'] = max([s['id'] for s in snapshots], default=0) + 1
+            snapshot['created_at'] = datetime.utcnow().isoformat()
+            snapshots.append(snapshot)
+            self._write_json(self.analytics_snapshots_file, snapshots)
+            return snapshot

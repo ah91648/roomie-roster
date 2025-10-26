@@ -283,7 +283,7 @@ class TestSecurityDecorators:
         security.rate_limit_storage.clear()
 
         with client.session_transaction() as sess:
-            sess['csrf_token': 'valid-token-12345'
+            sess['csrf_token'] = 'valid-token-12345'
 
         # Request with suspicious user agent should fail
         response = client.post(

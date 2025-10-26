@@ -5,6 +5,10 @@ import AssignmentDisplay from './components/AssignmentDisplay';
 import ShoppingListManager from './components/ShoppingListManager';
 import RequestManager from './components/RequestManager';
 import LaundryScheduler from './components/LaundryScheduler';
+import PomodoroTimer from './components/PomodoroTimer';
+import TodoManager from './components/TodoManager';
+import MoodJournal from './components/MoodJournal';
+import AnalyticsDashboard from './components/AnalyticsDashboard';
 import GoogleLoginButton from './components/GoogleLoginButton';
 import UserProfile from './components/UserProfile';
 import RoommateSelector from './components/RoommateSelector';
@@ -57,6 +61,11 @@ function MainApp() {
     { id: 'laundry', label: 'Laundry', icon: '🧺' },
     { id: 'shopping', label: 'Shopping List', icon: '🛒' },
     { id: 'requests', label: 'Requests', icon: '🙋' },
+    { id: 'separator', label: 'PRODUCTIVITY', isSeparator: true },
+    { id: 'pomodoro', label: 'Pomodoro', icon: '⏱️' },
+    { id: 'todos', label: 'Todos', icon: '✅' },
+    { id: 'mood', label: 'Mood', icon: '😊' },
+    { id: 'analytics', label: 'Analytics', icon: '📊' },
   ];
 
   const renderActiveComponent = () => {
@@ -71,6 +80,14 @@ function MainApp() {
         return <ShoppingListManager />;
       case 'requests':
         return <RequestManager />;
+      case 'pomodoro':
+        return <PomodoroTimer />;
+      case 'todos':
+        return <TodoManager />;
+      case 'mood':
+        return <MoodJournal />;
+      case 'analytics':
+        return <AnalyticsDashboard />;
       case 'assignments':
       default:
         return <AssignmentDisplay />;
@@ -194,7 +211,16 @@ function MainApp() {
               if (tab.authRequired && !isAuthenticated) {
                 return null;
               }
-              
+
+              // Render separator as visual element
+              if (tab.isSeparator) {
+                return (
+                  <div key={tab.id} className="nav-separator">
+                    <span className="separator-label">{tab.label}</span>
+                  </div>
+                );
+              }
+
               return (
                 <button
                   key={tab.id}
@@ -234,7 +260,7 @@ function MainApp() {
       </main>
 
       <footer className="app-footer">
-        <p>RoomieRoster - Fair chore distribution for happy households (v2.1 - Enhanced Navigation)</p>
+        <p>Zeith - Productivity & household management platform (v3.0 - Productivity Features)</p>
       </footer>
 
       {/* Roommate Linking Modal */}

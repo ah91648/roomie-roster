@@ -1,0 +1,128 @@
+# Render.com deployment configuration for RoomieRoster
+# This file defines infrastructure-as-code for automated deployment
+#
+# Features:
+# - Zero-downtime deployment with health checks
+# - Automatic database migrations
+# - Environment variable management
+# - Auto-deploy from GitHub
+
+services:
+  # Main web service
+  - type: web
+    name: roomie-roster
+    env: python
+    region: oregon
+    plan: starter  # Free tier - upgrade to 'standard' for better performance
+    branch: main   # Deploy from main branch
+
+    # Build command: Install dependencies + build frontend
+    buildCommand: |
+      echo "📦 Installing backend dependencies..."
+      cd backend && pip install -r requirements.txt
+      echo "📦 Installing frontend dependencies..."
+      cd ../frontend && npm ci --production=false
+      echo "🏗️  Building frontend..."
+      npm run build
+      echo "✅ Build complete"
+
+    # Start command: Run database migrations then start gunicorn
+    startCommand: |
+      echo "🔄 Running database migrations..."
+      cd backend && python scripts/run_migrations.py
+      if [ $? -ne 0 ]; then
+        echo "❌ Migration failed - aborting startup"
+        exit 1
+      fi
+      echo "🚀 Starting application..."
+      gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile - app:app
+
+    # Health check configuration
+    healthCheckPath: /api/health
+
+    # Auto-deploy settings
+    autoDeploy: true  # Auto-deploy when code is pushed to GitHub
+
+    # Environment variables
+    # NOTE: Sensitive values (secrets) should be set manually in Render dashboard
+    # These are templates - actual values must be configured in Render UI
+    envVars:
+      # === REQUIRED: Database Configuration ===
+      - key: DATABASE_URL
+        sync: false  # Set manually in dashboard
+        # Example: postgresql://user:pass@host:5432/db?sslmode=require
+
+      # === REQUIRED: Google OAuth ===
+      - key: GOOGLE_CLIENT_ID
+        sync: false  # Set manually in dashboard
+
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false  # Set manually in dashboard
+
+      # === REQUIRED: Flask Security ===
+      - key: FLASK_SECRET_KEY
+        sync: false  # Set manually in dashboard
+        # Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
+
+      # === REQUIRED: Access Control ===
+      - key: ROOMIE_WHITELIST
+        sync: false  # Set manually in dashboard
+        # Example: email1@gmail.com,email2@gmail.com,email3@gmail.com
+
+      # === REQUIRED: Flask Environment ===
+      - key: FLASK_ENV
+        value: production  # Fixed value for production
+
+      # === OPTIONAL: OAuth Configuration ===
+      - key: OAUTHLIB_RELAX_TOKEN_SCOPE
+        value: "1"  # Prevents OAuth scope validation errors
+
+      # === OPTIONAL: Custom Domain (if using custom domain instead of onrender.com) ===
+      # - key: APP_BASE_URL
+      #   value: https://your-custom-domain.com
+
+      # === AUTO-SET BY RENDER (do not set manually) ===
+      # PORT - Automatically set by Render
+      # RENDER_SERVICE_NAME - Automatically set by Render
+      # RENDER - Automatically set to "true" by Render
+
+# Notes for deployment:
+#
+# 1. Initial Setup:
+#    - Create Render account and connect GitHub repository
+#    - Create new Web Service
+#    - Select this render.yaml file
+#    - Set all environment variables marked with "sync: false"
+#
+# 2. Database Setup:
+#    - Create Neon PostgreSQL database (free tier available)
+#    - Get connection string from Neon dashboard
+#    - Set as DATABASE_URL in Render
+#    - Connection string must include: ?sslmode=require
+#
+# 3. Google OAuth Setup:
+#    - Add Render URL to authorized redirect URIs:
+#      https://roomie-roster.onrender.com/api/auth/callback
+#    - Or use custom domain if configured
+#
+# 4. Deployment Process:
+#    - Push to GitHub main branch
+#    - Render automatically deploys
+#    - Migrations run before app starts
+#    - Health check validates deployment
+#    - Traffic routed only when healthy
+#
+# 5. Rollback Procedure:
+#    - In Render dashboard, select previous deployment
+#    - Click "Redeploy"
+#    - For database rollback, use Neon point-in-time recovery
+#
+# 6. Monitoring:
+#    - View logs: Render Dashboard > Logs
+#    - View metrics: Render Dashboard > Metrics
+#    - Health check: https://your-app.onrender.com/api/health
+#
+# 7. Scaling (if needed):
+#    - Upgrade plan to 'standard' or higher
+#    - Increase worker count in startCommand
+#    - Add Redis for session storage (horizontal scaling)
