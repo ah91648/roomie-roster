@@ -28,7 +28,7 @@ from flask_cors import CORS
 from flask_talisman import Talisman
 from utils.data_handler import DataHandler
 from utils.database_data_handler import DatabaseDataHandler
-from utils.database_config import database_config
+from utils.database_config import database_config, db
 from utils.database_init import database_initializer
 from utils.assignment_logic import ChoreAssignmentLogic
 from utils.calendar_service import CalendarService
@@ -310,7 +310,7 @@ def health_check():
         # 2. Feature health checks
         try:
             # Test core features
-            roommates = data_handler.get_all_roommates()
+            roommates = data_handler.get_roommates()
             core_working = isinstance(roommates, list)
 
             # Test Zeith productivity features
