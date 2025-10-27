@@ -735,16 +735,25 @@ def get_shopping_list():
         return jsonify({'error': 'Failed to get shopping list'}), 500
 
 @app.route('/api/shopping-list', methods=['POST'])
-@roommate_required
+@login_required
 def add_shopping_item():
-    """Add a new item to the shopping list. Auto-assigns to logged-in user's linked roommate."""
+    """Add a new item to the shopping list. Auto-assigns to logged-in user (roommate or Google user)."""
     try:
         data = request.get_json()
 
-        # Get current user's linked roommate from session
+        # Get current user info
+        current_user = app.session_manager.get_current_user()
         current_roommate = app.session_manager.get_current_roommate()
-        if not current_roommate:
-            return jsonify({'error': 'You must be linked to a roommate to add items'}), 403
+
+        # Determine who is adding the item
+        # Priority: Use roommate info if linked, otherwise use Google user info
+        if current_roommate:
+            added_by_id = current_roommate['id']
+            added_by_name = current_roommate['name']
+        else:
+            # User not linked to roommate - use Google user info
+            added_by_id = None  # No roommate ID available
+            added_by_name = current_user.get('name', current_user.get('email', 'Unknown User'))
 
         # Validate required fields
         if not data.get('item_name') or not data['item_name'].strip():
@@ -758,8 +767,8 @@ def add_shopping_item():
             'actual_price': None,
             'brand_preference': data.get('brand_preference', '').strip() or None,
             'category': data.get('category', 'General'),
-            'added_by': current_roommate['id'],  # Auto-assigned from session
-            'added_by_name': current_roommate['name'],  # Auto-assigned from session
+            'added_by': added_by_id,  # Roommate ID or None
+            'added_by_name': added_by_name,  # Roommate name or Google user name
             'purchased_by': None,
             'purchased_by_name': None,
             'purchase_date': None,
@@ -837,25 +846,32 @@ def delete_shopping_item(item_id):
         return jsonify({'error': 'Failed to delete shopping item'}), 500
 
 @app.route('/api/shopping-list/<int:item_id>/purchase', methods=['POST'])
-@roommate_required
+@login_required
 def mark_item_purchased(item_id):
-    """Mark a shopping list item as purchased. Auto-assigns to logged-in user's linked roommate."""
+    """Mark a shopping list item as purchased. Auto-assigns to logged-in user (roommate or Google user)."""
     try:
         data = request.get_json() or {}
 
-        # Get current user's linked roommate from session
+        # Get current user info
+        current_user = app.session_manager.get_current_user()
         current_roommate = app.session_manager.get_current_roommate()
 
-        # Enhanced logging for diagnostics (especially for debugging 403 errors)
-        current_user = app.session_manager.get_current_user()
+        # Enhanced logging for diagnostics
         print(f"[PURCHASE] Item ID: {item_id}")
         print(f"[PURCHASE] Current user: {current_user.get('email') if current_user else 'None'}")
         print(f"[PURCHASE] Current roommate: {current_roommate.get('name') if current_roommate else 'None'}")
         print(f"[PURCHASE] Session authenticated: {app.session_manager.is_authenticated()}")
 
-        if not current_roommate:
-            print(f"[PURCHASE ERROR] No roommate linked for user {current_user.get('email') if current_user else 'Unknown'}")
-            return jsonify({'error': 'You must be linked to a roommate to purchase items'}), 403
+        # Determine who is purchasing the item
+        # Priority: Use roommate info if linked, otherwise use Google user info
+        if current_roommate:
+            purchased_by_id = current_roommate['id']
+            purchased_by_name = current_roommate['name']
+        else:
+            # User not linked to roommate - use Google user info
+            purchased_by_id = None  # No roommate ID available
+            purchased_by_name = current_user.get('name', current_user.get('email', 'Unknown User'))
+            print(f"[PURCHASE] User not linked to roommate, using Google user name: {purchased_by_name}")
 
         # Extract optional fields (actual_price and notes)
         actual_price = data.get('actual_price')
@@ -864,8 +880,8 @@ def mark_item_purchased(item_id):
         # Mark as purchased with auto-assigned user
         updated_item = data_handler.mark_item_purchased(
             item_id,
-            current_roommate['id'],  # Auto-assigned from session
-            current_roommate['name'],  # Auto-assigned from session
+            purchased_by_id,  # Roommate ID or None
+            purchased_by_name,  # Roommate name or Google user name
             actual_price,
             notes
         )

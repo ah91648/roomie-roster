@@ -22,6 +22,7 @@ backend.log
 server.log
 local_app.log
 logs/*.log
+logs/*.json
 
 # Node modules and cache
 node_modules/
@@ -35,6 +36,7 @@ frontend/node_modules/.cache/
 # IDE and editor files
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
