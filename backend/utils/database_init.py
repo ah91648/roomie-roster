@@ -10,8 +10,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError, OperationalError
 from .database_config import db, database_config
 from .database_models import (
+    # Core RoomieRoster models
     Roommate, Chore, SubChore, Assignment, ApplicationState,
-    ShoppingItem, Request, LaundrySlot, BlockedTimeSlot
+    ShoppingItem, Request, LaundrySlot, BlockedTimeSlot,
+    # Calendar integration models
+    HouseholdCalendarPreferences, UserCalendarPreferences,
+    CalendarEventTracking, CalendarSyncStatus,
+    # Zeith Productivity models
+    PomodoroSession, TodoItem, MoodEntry, AnalyticsSnapshot
 )
 
 class DatabaseInitializer:
@@ -138,9 +144,15 @@ class DatabaseInitializer:
         """
         try:
             required_tables = [
+                # Core RoomieRoster tables
                 'roommates', 'chores', 'sub_chores', 'assignments',
                 'application_state', 'shopping_items', 'requests',
-                'laundry_slots', 'blocked_time_slots'
+                'laundry_slots', 'blocked_time_slots',
+                # Calendar integration tables
+                'household_calendar_preferences', 'user_calendar_preferences',
+                'calendar_event_tracking', 'calendar_sync_status',
+                # Zeith Productivity tables
+                'pomodoro_sessions', 'todo_items', 'mood_entries', 'analytics_snapshots'
             ]
             
             for table_name in required_tables:
@@ -166,6 +178,7 @@ class DatabaseInitializer:
         counts = {}
         try:
             models = [
+                # Core RoomieRoster models
                 ('roommates', Roommate),
                 ('chores', Chore),
                 ('sub_chores', SubChore),
@@ -174,7 +187,17 @@ class DatabaseInitializer:
                 ('shopping_items', ShoppingItem),
                 ('requests', Request),
                 ('laundry_slots', LaundrySlot),
-                ('blocked_time_slots', BlockedTimeSlot)
+                ('blocked_time_slots', BlockedTimeSlot),
+                # Calendar integration models
+                ('household_calendar_preferences', HouseholdCalendarPreferences),
+                ('user_calendar_preferences', UserCalendarPreferences),
+                ('calendar_event_tracking', CalendarEventTracking),
+                ('calendar_sync_status', CalendarSyncStatus),
+                # Zeith Productivity models
+                ('pomodoro_sessions', PomodoroSession),
+                ('todo_items', TodoItem),
+                ('mood_entries', MoodEntry),
+                ('analytics_snapshots', AnalyticsSnapshot)
             ]
             
             for table_name, model_class in models:
