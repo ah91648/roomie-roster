@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { moodAPI } from '../services/api';
+import RoommateSelector from './RoommateSelector';
+import { useAuth } from '../contexts/AuthContext';
 
 const MoodJournal = () => {
+  // Auth context for roommate linking
+  const { user } = useAuth();
+
   // State
   const [todayEntry, setTodayEntry] = useState(null);
   const [recentEntries, setRecentEntries] = useState([]);
@@ -16,6 +21,7 @@ const MoodJournal = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
+  const [showRoommateSelector, setShowRoommateSelector] = useState(false);
 
   // Constants
   const MOOD_EMOJIS = ['😞', '😕', '😐', '🙂', '😄'];
@@ -25,6 +31,14 @@ const MoodJournal = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Watch for roommate linking completion
+  useEffect(() => {
+    if (showRoommateSelector && user?.roommate) {
+      // User just linked to a roommate, call the success handler
+      handleRoommateLinked();
+    }
+  }, [user?.roommate, showRoommateSelector]);
 
   const loadData = async () => {
     try {
@@ -76,7 +90,18 @@ const MoodJournal = () => {
 
       setRecentEntries(recent);
     } catch (err) {
-      setError('Failed to load mood entries: ' + (err.response?.data?.error || err.message));
+      // Check if this is a roommate linking error
+      const errorMessage = err.response?.data?.error || err.message;
+      const isRoommateError = err.response?.status === 403 &&
+        (errorMessage.includes('roommate') || errorMessage.includes('link'));
+
+      if (isRoommateError) {
+        // Show the roommate selector modal instead of error message
+        setShowRoommateSelector(true);
+        setError(null); // Clear error since we're showing the modal
+      } else {
+        setError('Failed to load mood entries: ' + errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -155,6 +180,23 @@ const MoodJournal = () => {
       );
     }
     return bars;
+  };
+
+  const handleRoommateLinked = async () => {
+    console.log('[MOOD] Roommate linked successfully, closing modal...');
+    setShowRoommateSelector(false);
+
+    // Retry loading data
+    console.log('[MOOD] Reloading mood data...');
+    setTimeout(() => {
+      loadData();
+    }, 800);
+  };
+
+  const handleRoommateSelectorCancel = () => {
+    console.log('[MOOD] User cancelled roommate linking');
+    setShowRoommateSelector(false);
+    setError('You must link your account to a roommate to use productivity features');
   };
 
   if (loading) {
@@ -331,6 +373,40 @@ const MoodJournal = () => {
       {recentEntries.length === 0 && !loading && (
         <div className="empty-state">
           <p>No previous mood entries. Start tracking your mood daily to see trends!</p>
+        </div>
+      )}
+
+      {/* Roommate Linking Modal - Shown when productivity features require roommate link */}
+      {showRoommateSelector && (
+        <div className="modal-overlay" onClick={(e) => {
+          // Only close if clicking the overlay background, not the modal content
+          if (e.target.className === 'modal-overlay') {
+            handleRoommateSelectorCancel();
+          }
+        }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Roommate Linking Required</h2>
+              <button
+                className="modal-close"
+                onClick={handleRoommateSelectorCancel}
+                aria-label="Close modal"
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="modal-info">
+                Productivity features (Pomodoro, Todos, Mood Journal) require you to link your Google account to a roommate profile.
+                Please select which roommate you are:
+              </p>
+              <RoommateSelector
+                onCancel={handleRoommateSelectorCancel}
+                title="Select Your Roommate Profile"
+                subtitle="Choose your profile to continue using productivity features"
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>
