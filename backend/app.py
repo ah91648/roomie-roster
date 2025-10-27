@@ -875,7 +875,7 @@ def mark_item_purchased(item_id):
 
         # Extract optional fields (actual_price and notes)
         actual_price = data.get('actual_price')
-        notes = data.get('notes', '').strip() or None
+        notes = (data.get('notes') or '').strip() or None
 
         # Mark as purchased with auto-assigned user
         updated_item = data_handler.mark_item_purchased(
@@ -895,7 +895,9 @@ def mark_item_purchased(item_id):
         return jsonify({'error': str(e)}), 404
     except Exception as e:
         print(f"Error marking item as purchased: {e}")
-        return jsonify({'error': 'Failed to mark item as purchased'}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to mark item as purchased: {str(e)}'}), 500
 
 @app.route('/api/shopping-list/history', methods=['GET'])
 @login_required
