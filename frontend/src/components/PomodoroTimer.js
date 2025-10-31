@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { pomodoroAPI, choreAPI, todoAPI } from '../services/api';
+import { pomodoroAPI, choreAPI, todoAPI, laundryAPI } from '../services/api';
 import RoommateSelector from './RoommateSelector';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -16,12 +16,14 @@ const PomodoroTimer = () => {
   const [duration, setDuration] = useState(25);
   const [linkedChoreId, setLinkedChoreId] = useState('');
   const [linkedTodoId, setLinkedTodoId] = useState('');
+  const [linkedLaundrySlotId, setLinkedLaundrySlotId] = useState('');
   const [notes, setNotes] = useState('');
 
   // Data state
   const [recentSessions, setRecentSessions] = useState([]);
   const [chores, setChores] = useState([]);
   const [todos, setTodos] = useState([]);
+  const [laundrySlots, setLaundrySlots] = useState([]);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -86,16 +88,18 @@ const PomodoroTimer = () => {
       setLoading(true);
       setError(null);
 
-      // Load recent sessions, chores, and todos in parallel
-      const [sessionsRes, choresRes, todosRes] = await Promise.all([
+      // Load recent sessions, chores, todos, and laundry slots in parallel
+      const [sessionsRes, choresRes, todosRes, laundryRes] = await Promise.all([
         pomodoroAPI.getHistory({ limit: 5, status: 'completed' }),
         choreAPI.getAll(),
-        todoAPI.getAll({ status: 'pending' })
+        todoAPI.getAll({ status: 'pending' }),
+        laundryAPI.getAll({ status: 'scheduled' })
       ]);
 
       setRecentSessions(sessionsRes.data || []);
       setChores(choresRes.data || []);
       setTodos(todosRes.data || []);
+      setLaundrySlots(laundryRes.data || []);
     } catch (err) {
       // Check if this is a roommate linking error
       const errorMessage = err.response?.data?.error || err.message;
@@ -177,6 +181,7 @@ const PomodoroTimer = () => {
 
       if (linkedChoreId) sessionData.chore_id = parseInt(linkedChoreId);
       if (linkedTodoId) sessionData.todo_id = parseInt(linkedTodoId);
+      if (linkedLaundrySlotId) sessionData.laundry_slot_id = parseInt(linkedLaundrySlotId);
 
       await pomodoroAPI.start(sessionData);
 
@@ -184,6 +189,7 @@ const PomodoroTimer = () => {
       setNotes('');
       setLinkedChoreId('');
       setLinkedTodoId('');
+      setLinkedLaundrySlotId('');
 
       // Refresh active session
       await pollActiveSession();
@@ -252,6 +258,43 @@ const PomodoroTimer = () => {
     return type;
   };
 
+  // Calculate progress percentage for circular timer
+  const calculateProgress = () => {
+    if (!activeSession || timeRemaining === null) return 0;
+    const totalSeconds = activeSession.planned_duration_minutes * 60;
+    const progress = (timeRemaining / totalSeconds) * 100;
+    return Math.max(0, Math.min(100, progress));
+  };
+
+  // Determine timer color class based on session type and remaining time
+  const getTimerColorClass = () => {
+    if (!activeSession) return 'timer-focus';
+
+    const remainingMinutes = timeRemaining ? timeRemaining / 60 : 0;
+
+    // Critical state: ≤ 1 minute
+    if (remainingMinutes <= 1) return 'timer-critical';
+
+    // Warning state: ≤ 5 minutes
+    if (remainingMinutes <= 5) return 'timer-warning';
+
+    // Normal state: based on session type
+    if (activeSession.session_type === 'focus') return 'timer-focus';
+    if (activeSession.session_type === 'short_break') return 'timer-short-break';
+    if (activeSession.session_type === 'long_break') return 'timer-long-break';
+
+    return 'timer-focus';
+  };
+
+  // Get wave animation speed class based on session type
+  const getWaveSpeedClass = () => {
+    if (!activeSession) return 'wave-focus';
+    if (activeSession.session_type === 'focus') return 'wave-focus';
+    if (activeSession.session_type === 'short_break') return 'wave-short-break';
+    if (activeSession.session_type === 'long_break') return 'wave-long-break';
+    return 'wave-focus';
+  };
+
   const getRelativeTime = (timestamp) => {
     const now = new Date();
     const then = new Date(timestamp);
@@ -310,7 +353,14 @@ const PomodoroTimer = () => {
 
       {/* Active Session Display */}
       {activeSession ? (
-        <div className="active-session-card">
+        <div className={`active-session-card ${getTimerColorClass()}`}>
+          {/* Animated wave background */}
+          <div className={`wave-background ${getWaveSpeedClass()}`}>
+            <div className="wave-layer wave-1"></div>
+            <div className="wave-layer wave-2"></div>
+            <div className="wave-layer wave-3"></div>
+          </div>
+
           <div className="session-header">
             <h3>Current Session: {formatSessionType(activeSession.session_type)}</h3>
             <span className={`session-status status-${activeSession.status}`}>
@@ -318,11 +368,44 @@ const PomodoroTimer = () => {
             </span>
           </div>
 
-          <div className="timer-display">
-            <div className="time-remaining">
-              {formatTime(timeRemaining)}
+          {/* Circular Timer Display */}
+          <div className="circular-timer-container">
+            <svg className="circular-timer" viewBox="0 0 300 300">
+              {/* Background circle */}
+              <circle
+                className="timer-background-circle"
+                cx="150"
+                cy="150"
+                r="135"
+                fill="none"
+                stroke="rgba(255, 255, 255, 0.2)"
+                strokeWidth="12"
+              />
+              {/* Progress circle */}
+              <circle
+                className="timer-progress-circle"
+                cx="150"
+                cy="150"
+                r="135"
+                fill="none"
+                strokeWidth="12"
+                strokeLinecap="round"
+                strokeDasharray={`${2 * Math.PI * 135}`}
+                strokeDashoffset={`${2 * Math.PI * 135 * (1 - calculateProgress() / 100)}`}
+                transform="rotate(-90 150 150)"
+              />
+            </svg>
+
+            {/* Center content */}
+            <div className="timer-center-content">
+              <div className="time-remaining">
+                {formatTime(timeRemaining)}
+              </div>
+              <div className="time-label">remaining</div>
+              <div className="progress-percentage">
+                {Math.round(calculateProgress())}%
+              </div>
             </div>
-            <div className="time-label">remaining</div>
           </div>
 
           {activeSession.notes && (
@@ -429,6 +512,24 @@ const PomodoroTimer = () => {
                   {todos.map(todo => (
                     <option key={todo.id} value={todo.id}>
                       {todo.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="linkedLaundrySlot">Link to Laundry Slot (optional):</label>
+                <select
+                  id="linkedLaundrySlot"
+                  value={linkedLaundrySlotId}
+                  onChange={(e) => setLinkedLaundrySlotId(e.target.value)}
+                >
+                  <option value="">-- No laundry slot --</option>
+                  {laundrySlots.map(slot => (
+                    <option key={slot.id} value={slot.id}>
+                      {slot.date} {slot.time_slot} - {slot.load_type}
                     </option>
                   ))}
                 </select>

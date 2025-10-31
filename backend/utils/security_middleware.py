@@ -189,24 +189,30 @@ def csrf_protected_enhanced(f):
     """Enhanced CSRF protection decorator."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Check if development bypass is enabled
+        from utils.dev_auth_bypass import dev_auth_bypass
+        if dev_auth_bypass.is_bypass_enabled():
+            dev_auth_bypass.log_bypass_usage(f.__name__)
+            return f(*args, **kwargs)
+
         security = getattr(current_app, 'security_middleware', None)
         if not security:
             return f(*args, **kwargs)
-        
+
         # Skip CSRF for GET requests
         if request.method == 'GET':
             return f(*args, **kwargs)
-        
+
         # Get CSRF token from header or form data
         csrf_token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
-        
+
         if not security.validate_csrf_token(csrf_token):
             security.log_security_event('CSRF_VALIDATION_FAILED', {
                 'endpoint': request.endpoint,
                 'method': request.method
             })
             return jsonify({'error': 'CSRF token validation failed'}), 403
-        
+
         return f(*args, **kwargs)
     return decorated_function
 

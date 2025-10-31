@@ -296,9 +296,8 @@ def login_required(f: Callable) -> Callable:
         # Check if development bypass is enabled
         if dev_auth_bypass.is_bypass_enabled():
             dev_auth_bypass.log_bypass_usage(f.__name__)
-            # Inject mock session manager if not present
-            if not hasattr(current_app, 'session_manager') or current_app.session_manager is None:
-                current_app.session_manager = dev_auth_bypass.get_mock_session_manager()
+            # Always inject mock session manager when bypass is enabled
+            current_app.session_manager = dev_auth_bypass.get_mock_session_manager()
             return f(*args, **kwargs)
 
         # Normal authentication check
@@ -318,9 +317,8 @@ def roommate_required(f: Callable) -> Callable:
         # Check if development bypass is enabled
         if dev_auth_bypass.is_bypass_enabled():
             dev_auth_bypass.log_bypass_usage(f.__name__)
-            # Inject mock session manager if not present
-            if not hasattr(current_app, 'session_manager') or current_app.session_manager is None:
-                current_app.session_manager = dev_auth_bypass.get_mock_session_manager()
+            # Always inject mock session manager when bypass is enabled
+            current_app.session_manager = dev_auth_bypass.get_mock_session_manager()
             return f(*args, **kwargs)
 
         # Normal authentication check

@@ -2453,6 +2453,7 @@ class DatabaseDataHandler:
                     session_type=session.get('session_type', 'focus'),
                     chore_id=session.get('chore_id'),
                     todo_id=session.get('todo_id'),
+                    laundry_slot_id=session.get('laundry_slot_id'),
                     notes=session.get('notes')
                 )
                 db.session.add(new_session)

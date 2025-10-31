@@ -149,6 +149,16 @@ user_calendar_service = UserCalendarService()
 session_manager = SessionManager(auth_service=auth_service, data_handler=data_handler)
 # Also attach to app for test access
 app.session_manager = session_manager
+
+# Check if development auth bypass is enabled
+from utils.dev_auth_bypass import dev_auth_bypass
+if dev_auth_bypass.is_bypass_enabled():
+    # Replace session_manager with mock for testing
+    mock_session = dev_auth_bypass.get_mock_session_manager()
+    session_manager = mock_session
+    app.session_manager = mock_session
+    print("⚠️  Using mock session manager for development bypass")
+
 security_middleware = SecurityMiddleware()
 
 # Initialize calendar notification service for household-wide notifications
@@ -2818,6 +2828,7 @@ def start_pomodoro_session():
             'session_type': session_type,
             'chore_id': data.get('chore_id'),
             'todo_id': data.get('todo_id'),
+            'laundry_slot_id': data.get('laundry_slot_id'),
             'notes': data.get('notes', '').strip() or None,
             'status': 'in_progress'
         }

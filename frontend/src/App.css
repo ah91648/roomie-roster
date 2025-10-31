@@ -2508,15 +2508,58 @@ body {
 
 /* Active Session Card */
 .active-session-card {
+  position: relative;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 16px;
   padding: 2rem;
   color: white;
   box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
   margin-bottom: 2rem;
+  overflow: hidden;
+  transition: background 0.6s ease, box-shadow 0.6s ease;
+}
+
+/* Session Type Color Themes */
+.active-session-card.timer-focus {
+  background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3);
+}
+
+.active-session-card.timer-short-break {
+  background: linear-gradient(135deg, #10b981 0%, #14b8a6 100%);
+  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+}
+
+.active-session-card.timer-long-break {
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
+}
+
+.active-session-card.timer-warning {
+  background: linear-gradient(135deg, #f59e0b 0%, #eab308 100%);
+  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.4);
+}
+
+.active-session-card.timer-critical {
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+  box-shadow: 0 8px 24px rgba(220, 38, 38, 0.5);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 8px 24px rgba(220, 38, 38, 0.5);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 12px 32px rgba(220, 38, 38, 0.7);
+  }
 }
 
 .session-header {
+  position: relative;
+  z-index: 2;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2537,6 +2580,60 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* Wave Background Animation */
+.wave-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.wave-layer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 200%;
+  height: 100%;
+  background-repeat: repeat-x;
+  background-size: 50% 100%;
+}
+
+.wave-1 {
+  opacity: 0.15;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,60 C150,90 300,30 600,60 C900,90 1050,30 1200,60 L1200,120 L0,120 Z' fill='white'/%3E%3C/svg%3E");
+}
+
+.wave-2 {
+  opacity: 0.10;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,40 C200,80 400,0 600,40 C800,80 1000,0 1200,40 L1200,120 L0,120 Z' fill='white'/%3E%3C/svg%3E");
+}
+
+.wave-3 {
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,80 C250,100 450,40 600,80 C750,100 950,40 1200,80 L1200,120 L0,120 Z' fill='white'/%3E%3C/svg%3E");
+}
+
+/* Wave Animation Speeds by Session Type */
+.wave-focus .wave-1 { animation: wave-drift 8s linear infinite; }
+.wave-focus .wave-2 { animation: wave-drift 10s linear infinite reverse; }
+.wave-focus .wave-3 { animation: wave-drift 12s linear infinite; }
+
+.wave-short-break .wave-1 { animation: wave-drift 12s linear infinite; }
+.wave-short-break .wave-2 { animation: wave-drift 14s linear infinite reverse; }
+.wave-short-break .wave-3 { animation: wave-drift 16s linear infinite; }
+
+.wave-long-break .wave-1 { animation: wave-drift 16s linear infinite; }
+.wave-long-break .wave-2 { animation: wave-drift 20s linear infinite reverse; }
+.wave-long-break .wave-3 { animation: wave-drift 24s linear infinite; }
+
+@keyframes wave-drift {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
 .status-in_progress {
   background: rgba(76, 175, 80, 0.3);
 }
@@ -2545,26 +2642,82 @@ body {
   background: rgba(255, 193, 7, 0.3);
 }
 
-.timer-display {
-  text-align: center;
+/* Circular Timer Container */
+.circular-timer-container {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   margin: 2rem 0;
 }
 
+.circular-timer {
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2));
+}
+
+.timer-background-circle {
+  transition: stroke 0.3s ease;
+}
+
+.timer-progress-circle {
+  stroke: white;
+  transition: stroke-dashoffset 1s linear, stroke 0.6s ease;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));
+}
+
+/* Stroke color changes for different states */
+.timer-warning .timer-progress-circle {
+  stroke: #fef08a;
+  filter: drop-shadow(0 0 12px rgba(254, 240, 138, 0.8));
+}
+
+.timer-critical .timer-progress-circle {
+  stroke: #fca5a5;
+  filter: drop-shadow(0 0 16px rgba(252, 165, 165, 0.9));
+}
+
+.timer-center-content {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  width: 100%;
+}
+
 .time-remaining {
-  font-size: 4.5rem;
+  font-size: 3.5rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.05em;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  margin: 0;
+  line-height: 1;
 }
 
 .time-label {
-  font-size: 1rem;
+  font-size: 0.9rem;
   opacity: 0.9;
   margin-top: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 500;
+}
+
+.progress-percentage {
+  font-size: 1.1rem;
+  opacity: 0.85;
+  margin-top: 0.5rem;
+  font-weight: 600;
 }
 
 .session-notes {
+  position: relative;
+  z-index: 2;
   background: rgba(255, 255, 255, 0.1);
   padding: 1rem;
   border-radius: 8px;
@@ -2572,6 +2725,8 @@ body {
 }
 
 .session-controls {
+  position: relative;
+  z-index: 2;
   display: flex;
   gap: 1rem;
   justify-content: center;
@@ -3611,8 +3766,20 @@ body {
     padding: 1rem;
   }
 
+  .circular-timer {
+    max-width: 220px;
+  }
+
   .time-remaining {
-    font-size: 3rem;
+    font-size: 2.5rem;
+  }
+
+  .progress-percentage {
+    font-size: 0.95rem;
+  }
+
+  .time-label {
+    font-size: 0.8rem;
   }
 
   .session-type-buttons {

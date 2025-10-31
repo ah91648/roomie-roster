@@ -1095,9 +1095,10 @@ class PomodoroSession(BaseModel):
     session_type = db.Column(db.String(20), default='focus', nullable=False)  # focus, short_break, long_break
     status = db.Column(db.String(20), default='in_progress', nullable=False)  # in_progress, completed, interrupted
 
-    # Optional linking to chores or todos
+    # Optional linking to chores, todos, or laundry slots
     chore_id = db.Column(db.Integer, db.ForeignKey('chores.id'), nullable=True)
     todo_id = db.Column(db.Integer, db.ForeignKey('todo_items.id'), nullable=True)
+    laundry_slot_id = db.Column(db.Integer, db.ForeignKey('laundry_slots.id'), nullable=True)
 
     # Notes and metadata
     notes = db.Column(db.Text, nullable=True)
@@ -1107,6 +1108,7 @@ class PomodoroSession(BaseModel):
     roommate = db.relationship('Roommate', backref='pomodoro_sessions')
     chore = db.relationship('Chore', backref='pomodoro_sessions')
     todo = db.relationship('TodoItem', backref='pomodoro_sessions', foreign_keys='PomodoroSession.todo_id')
+    laundry_slot = db.relationship('LaundrySlot', backref='pomodoro_sessions')
 
     VALID_SESSION_TYPES = ['focus', 'short_break', 'long_break']
     VALID_STATUSES = ['in_progress', 'completed', 'interrupted']
@@ -1192,6 +1194,10 @@ class PomodoroSession(BaseModel):
 
         if self.todo:
             data['todo_title'] = self.todo.title
+
+        if self.laundry_slot:
+            data['laundry_slot_time'] = f"{self.laundry_slot.date} {self.laundry_slot.time_slot}"
+            data['laundry_slot_load_type'] = self.laundry_slot.load_type
 
         data['is_active'] = self.is_active
         data['is_overdue'] = self.is_overdue

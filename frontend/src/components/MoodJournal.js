@@ -136,7 +136,18 @@ const MoodJournal = () => {
       // Clear success message after 3 seconds
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
-      setError('Failed to save mood entry: ' + (err.response?.data?.error || err.message));
+      // Check if this is a roommate linking error
+      const errorMessage = err.response?.data?.error || err.message;
+      const isRoommateError = err.response?.status === 403 &&
+        (errorMessage.includes('roommate') || errorMessage.includes('link'));
+
+      if (isRoommateError) {
+        // Show the roommate selector modal instead of error message
+        setShowRoommateSelector(true);
+        setError(null); // Clear error since we're showing the modal
+      } else {
+        setError('Failed to save mood entry: ' + errorMessage);
+      }
     }
   };
 

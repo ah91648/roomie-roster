@@ -39,8 +39,8 @@ class DevAuthBypass:
         'email': 'dev@roomieroster.local',
         'name': 'Dev User',
         'picture': None,
-        'roommate_id': None,  # Can be set to test roommate-specific features
-        'roommate_name': None
+        'roommate_id': 2,  # Linked to Angel for testing
+        'roommate_name': 'Angel'
     }
 
     def __init__(self):
@@ -147,6 +147,10 @@ class MockSessionManager:
 
     def __init__(self, mock_user: Dict):
         self.mock_user = mock_user
+
+    def init_app(self, app):
+        """No-op init_app for compatibility with SessionManager interface."""
+        pass
 
     def is_authenticated(self) -> bool:
         """Always return True when bypass is enabled."""
