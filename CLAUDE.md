@@ -9,6 +9,14 @@ RoomieRoster is a full-stack household chore management app that fairly distribu
 **Key Features:**
 - Chore & roommate management with sub-task tracking
 - Shopping list with categories, real-time sync, and purchase history
+- **ML Grocery Prediction** (Phase 1: Baseline Predictor COMPLETE):
+  - **Phase 0 (✅ Complete)**: Data collection infrastructure (quantity, depletion tracking)
+  - **Phase 1 (✅ Complete)**: Simple Moving Average baseline predictor (70-75% accuracy target)
+    - Daily automated predictions at 3 AM
+    - Confidence scoring based on purchase history quality
+    - 4 API endpoints for predictions, metrics, and manual refresh
+    - Category-level fallback for items with limited data
+  - **Phase 2 (Pending)**: Advanced ML models (Prophet + Survival Analysis, 90%+ accuracy)
 - Purchase request approval workflow
 - Laundry scheduling (app-only, no calendar sync)
 - Google OAuth authentication with calendar integration
@@ -181,6 +189,95 @@ gunicorn -w 2 -b 0.0.0.0:5000 app:app  # Test with production server
 - Rate limited (50 requests/minute per user)
 - CSRF protected mutations
 - Data syncs with chore assignments and calendar events
+
+### ML Grocery Prediction System
+
+**Overview:**
+The ML Grocery Prediction system is a 6-month initiative to build a 90%+ accurate model that predicts when household items will run out.
+
+**Implementation Status: Phase 1 Complete (Baseline Predictor)**
+- ✅ **Phase 0 (Data Foundation)**: Infrastructure for tracking quantities, depletion dates, and purchase intervals
+- ✅ **Phase 1 (Baseline Predictor)**: Simple Moving Average (SMA) predictor achieving 70-75% accuracy target
+- ⏳ **Phase 2 (Advanced ML)**: Prophet + Survival Analysis models (90%+ accuracy) - Starts after 60+ days of data
+
+**Data Collection Fields (ShoppingItem model):**
+- `quantity` (Float): Amount purchased (e.g., 1.0, 2.5)
+- `unit` (String): Unit of measure (gallon, oz, lb, count, etc.)
+- `last_depleted_date` (DateTime): When item was marked as depleted
+- `typical_consumption_days` (Integer): Calculated or user-estimated days until depletion
+- `depletion_feedback` (JSON): User feedback on prediction accuracy
+- `category` (String): Item category for grouping similar items
+
+**Key Features (Phase 0):**
+1. **Quantity Tracking**: Users enter amount and unit when adding/purchasing items
+2. **Depletion Tracking**: Users mark items as "depleted" when they run out
+3. **Automatic Consumption Calculation**: System calculates days between purchase and depletion
+4. **Purchase Interval Analysis**: Track time between repeat purchases of same item
+5. **ML Training Data Export**: Aggregate data for future model training
+
+**Backend API Endpoints (Phase 0 - Data Collection):**
+- `POST /api/shopping-list/:id/mark-depleted` - Mark item as depleted with optional feedback
+- `GET /api/ml/depletion-history?days=90` - Get depletion history for training
+- `GET /api/ml/training-data?min_purchases=2` - Get items with sufficient purchase history
+- `GET /api/ml/purchase-intervals/:item_name?category=X` - Get purchase intervals for item
+
+**Backend API Endpoints (Phase 1 - Predictions):**
+- `GET /api/ml/predictions` - Get all active predictions sorted by urgency (login required, rate limited: 50/min)
+- `GET /api/ml/predictions/item/:id` - Get prediction for specific item
+- `GET /api/ml/predictions/metrics` - Get model performance metrics (precision@7days, MAE, coverage)
+- `POST /api/ml/predictions/refresh` - Manually trigger prediction generation (CSRF protected, rate limited: 10/min)
+
+**DatabaseDataHandler Methods (Phase 0):**
+- `mark_item_depleted(item_id, depleted_date, days_lasted, feedback)` - Record depletion
+- `get_depletion_history(days)` - Fetch recent depletion events
+- `get_item_purchase_intervals(item_name, category)` - Calculate purchase frequency
+- `get_ml_training_data(min_purchases)` - Aggregate training features
+
+**DatabaseDataHandler Methods (Phase 1):**
+- `get_shopping_item_by_id(item_id)` - Fetch single item by ID
+- `get_shopping_items(status, category)` - Fetch items with optional filters
+- `get_item_purchase_intervals_by_id(item_id)` - Get intervals for specific item ID
+- `update_shopping_item(item_id, data)` - Update item including prediction fields
+
+**GroceryPredictionService (Phase 1):**
+- `calculate_sma(item_id, window)` - Calculate SMA prediction for single item
+- `calculate_category_fallback(category, last_purchase_date)` - Category-level average fallback
+- `generate_all_predictions(min_purchases)` - Batch predict all eligible items (runs daily at 3 AM)
+- `evaluate_accuracy()` - Calculate precision@7days, recall@7days, MAE, coverage
+- `get_confidence_score(item_id)` - Get prediction confidence for item
+
+**Phase 1 Implementation Details (✅ Complete):**
+- **Algorithm**: Simple Moving Average (SMA) with Exponential Moving Average (EMA) weighting
+- **Model Version**: `sma_v1`
+- **Prediction Schedule**: Daily automated predictions at 3 AM via APScheduler
+- **Database Fields Added**:
+  - `predicted_depletion_date` (DateTime): When item predicted to run out
+  - `prediction_confidence` (Float, 0-1): Confidence score based on data quality
+  - `prediction_model_version` (String): Model identifier
+- **Confidence Scoring**: Based on purchase count and variance (consistent patterns get higher confidence)
+- **Fallback Strategy**: Category-level average for items with 1-2 purchases
+- **Documentation**: See `backend/docs/ML_PREDICTION_PHASE1.md` for complete details
+
+**Future Phases (Remaining Roadmap):**
+- **Phase 2** (Months 3-4): Advanced ML models (Prophet for time series, Survival Analysis for depletion, 90%+ accuracy)
+- **Phase 3** (Months 5-6): Frontend predictions UI, automated retraining pipeline, push notifications
+- **Phase 4** (Month 6+): Cross-household learning, seasonal adjustments, grocery API integration
+
+**Critical Requirements:**
+- **Minimum 60 days of data** required before ML training
+- **User engagement essential**: Users must track quantities and depletion dates
+- **Target accuracy**: 90% precision@7days (items predicted to deplete in 7 days actually do)
+
+**Data Quality Metrics:**
+- Purchase count per item (min 2 for training)
+- Depletion event tracking rate (target: 80% of items)
+- Quantity field completion rate (target: 90%)
+
+**ML Approach (Future):**
+- **Baseline**: Moving average of purchase intervals (Phase 1)
+- **Advanced**: Hybrid Prophet (seasonality) + Cox Proportional Hazards (survival analysis) (Phase 2)
+- **Features**: household size, category, brand, day of week, month, purchase frequency
+- **Optimization**: Balance "too early" (storage issues) vs "too late" (multiple trips)
 
 ### Database Configuration
 
@@ -380,11 +477,18 @@ python3 launch_app.py
 - `POST /api/auth/logout` - Logout
 
 ### Shopping List
-- `GET/POST /api/shopping-list` - CRUD (supports status filtering)
-- `PUT/DELETE /api/shopping-list/{id}` - Update/delete
+- `GET/POST /api/shopping-list` - CRUD (supports status filtering, quantity/unit fields)
+- `PUT/DELETE /api/shopping-list/{id}` - Update/delete (supports quantity/unit updates)
 - `POST /api/shopping-list/{id}/purchase` - Mark purchased
+- `POST /api/shopping-list/{id}/mark-depleted` - Mark item as depleted (ML tracking)
 - `GET /api/shopping-list/metadata` - Real-time metadata
-- `GET/POST /api/shopping-list/categories` - Category management
+- `GET /api/shopping-list/categories` - Category management
+
+### ML Grocery Prediction (Login Required)
+- `POST /api/shopping-list/:id/mark-depleted` - Mark item depleted with optional feedback
+- `GET /api/ml/depletion-history?days=90` - Get depletion history for training
+- `GET /api/ml/training-data?min_purchases=2` - Get items with sufficient history
+- `GET /api/ml/purchase-intervals/:item_name?category=X` - Get purchase intervals
 
 ### Requests
 - `GET/POST /api/requests` - CRUD
@@ -521,11 +625,14 @@ python3 launch_app.py
 
 ```
 backend/
-├── app.py                          # Flask application entry point (80+ endpoints)
+├── app.py                          # Flask application entry point (85+ endpoints)
 ├── migrations/                     # Flask-Migrate (Alembic) migrations
 │   ├── alembic.ini                # Alembic configuration
 │   ├── env.py                     # Migration environment
 │   └── versions/                  # Migration scripts (versioned)
+│       ├── 20251025_initial_schema.py              # Initial database schema
+│       ├── 20251031_add_laundry_slot_to_pomodoro.py # Laundry-Pomodoro link
+│       └── 20251112_add_ml_tracking_fields.py      # ML grocery prediction fields
 ├── scripts/                       # Deployment & utility scripts
 │   ├── run_migrations.py          # Production migration runner
 │   ├── check_pending_migrations.py # Migration status validator

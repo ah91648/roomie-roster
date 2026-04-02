@@ -8,6 +8,7 @@ const CategorySection = ({
   onUpdateItem,
   onDeleteItem,
   onPurchaseItem,
+  onMarkDepleted,
   onDeleteCategory,
   filter = 'active' // 'active', 'purchased', or 'all'
 }) => {
@@ -169,6 +170,7 @@ const CategorySection = ({
                   onUpdate={onUpdateItem}
                   onDelete={onDeleteItem}
                   onPurchase={onPurchaseItem}
+                  onMarkDepleted={onMarkDepleted}
                 />
               ))
             ) : (

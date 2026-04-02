@@ -37,6 +37,7 @@ from utils.session_manager import SessionManager, login_required, roommate_requi
 from utils.user_calendar_service import UserCalendarService
 from utils.security_middleware import SecurityMiddleware, rate_limit, csrf_protected_enhanced, security_validated, auth_rate_limited
 from utils.scheduler_service import SchedulerService
+from utils.grocery_prediction_service import GroceryPredictionService
 from utils.logger import configure_logging, request_logging_middleware
 
 # Import calendar notification service
@@ -171,12 +172,34 @@ if CALENDAR_NOTIFICATIONS_AVAILABLE:
         print(f"Failed to initialize household calendar notification service: {str(e)}")
         household_calendar_service = None
 
-# Initialize scheduler service for automatic cycle resets and laundry cleanup
-scheduler_service = SchedulerService(assignment_logic=assignment_logic, data_handler=data_handler)
+# Initialize grocery prediction service (Phase 1: Baseline Predictor)
+logger = logging.getLogger(__name__)
+prediction_service = GroceryPredictionService(data_handler=data_handler, logger=logger)
+
+# Initialize scheduler service for automatic cycle resets, laundry cleanup, and daily predictions
+scheduler_service = SchedulerService(
+    assignment_logic=assignment_logic,
+    data_handler=data_handler,
+    prediction_service=prediction_service
+)
 
 # Initialize session management and security with app
 session_manager.init_app(app)
 security_middleware.init_app(app)
+
+# Attach scheduler to app and initialize it
+# This runs under both gunicorn and direct `python app.py`
+app.scheduler_service = scheduler_service
+try:
+    with app.app_context():
+        scheduler_service.init_scheduler()
+        status = scheduler_service.get_scheduler_status()
+        print(f"✅ Scheduler initialized: {status.get('status', 'unknown')}", flush=True)
+        if status.get('jobs'):
+            for job in status['jobs']:
+                print(f"   📅 {job['name']} - Next: {job['next_run_time']}", flush=True)
+except Exception as e:
+    print(f"⚠️  Scheduler initialization failed: {e}", flush=True)
 
 # Error handlers
 @app.errorhandler(400)
@@ -351,11 +374,13 @@ def health_check():
 
         # 3. Scheduler status check (non-critical)
         try:
-            if hasattr(app, 'scheduler_service'):
+            if hasattr(app, 'scheduler_service') and app.scheduler_service is not None:
                 scheduler_running = app.scheduler_service.is_scheduler_running()
+                scheduler_info = app.scheduler_service.get_scheduler_status()
                 health_status['checks']['scheduler'] = {
                     'status': 'healthy' if scheduler_running else 'degraded',
-                    'running': scheduler_running
+                    'running': scheduler_running,
+                    'jobs': scheduler_info.get('jobs', [])
                 }
             else:
                 health_status['checks']['scheduler'] = {
@@ -908,6 +933,59 @@ def mark_item_purchased(item_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'Failed to mark item as purchased: {str(e)}'}), 500
+
+@app.route('/api/shopping-list/<int:item_id>/mark-depleted', methods=['POST'])
+@login_required
+def mark_item_depleted(item_id):
+    """Mark a shopping list item as depleted (ran out).
+
+    This endpoint records when an item runs out, enabling ML prediction of future depletion.
+    Optionally accepts user feedback on prediction accuracy.
+
+    Request body (all optional):
+    {
+        "depleted_date": "2025-11-12T10:30:00",  // ISO format, defaults to now
+        "days_lasted": 7,  // Override calculated days, optional
+        "feedback": {  // User feedback on prediction accuracy
+            "was_accurate": true,
+            "predicted_days": 7,
+            "actual_days": 6
+        }
+    }
+    """
+    try:
+        data = request.get_json() or {}
+
+        # Parse depleted date if provided
+        depleted_date = None
+        if data.get('depleted_date'):
+            from dateutil import parser
+            depleted_date = parser.parse(data['depleted_date'])
+
+        # Extract other optional fields
+        days_lasted = data.get('days_lasted')
+        feedback = data.get('feedback')
+
+        # Mark item as depleted
+        updated_item = data_handler.mark_item_depleted(
+            item_id,
+            depleted_date=depleted_date,
+            days_lasted=days_lasted,
+            feedback=feedback
+        )
+
+        return jsonify({
+            'message': 'Item marked as depleted successfully',
+            'item': updated_item
+        })
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        print(f"Error marking item as depleted: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to mark item as depleted: {str(e)}'}), 500
 
 @app.route('/api/shopping-list/history', methods=['GET'])
 @login_required
@@ -1604,6 +1682,229 @@ def complete_laundry_slot(slot_id):
     except Exception as e:
         print(f"Error completing laundry slot: {e}")
         return jsonify({'error': 'Failed to complete laundry slot'}), 500
+
+# =============================================================================
+# ML GROCERY PREDICTION ENDPOINTS
+# =============================================================================
+
+@app.route('/api/ml/depletion-history', methods=['GET'])
+@login_required
+def get_depletion_history():
+    """Get depletion history for ML training and analysis.
+
+    Query parameters:
+    - days: Number of days to look back (default: 90)
+    """
+    try:
+        days = request.args.get('days', 90, type=int)
+        history = data_handler.get_depletion_history(days=days)
+
+        return jsonify({
+            'depletion_history': history,
+            'count': len(history),
+            'days': days
+        })
+    except Exception as e:
+        print(f"Error getting depletion history: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to get depletion history'}), 500
+
+@app.route('/api/ml/training-data', methods=['GET'])
+@login_required
+def get_ml_training_data():
+    """Get aggregated ML training data for items with sufficient purchase history.
+
+    Query parameters:
+    - min_purchases: Minimum number of purchases required (default: 2)
+    """
+    try:
+        min_purchases = request.args.get('min_purchases', 2, type=int)
+        training_data = data_handler.get_ml_training_data(min_purchases=min_purchases)
+
+        return jsonify({
+            'training_data': training_data,
+            'count': len(training_data),
+            'min_purchases': min_purchases
+        })
+    except Exception as e:
+        print(f"Error getting ML training data: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to get ML training data'}), 500
+
+@app.route('/api/ml/purchase-intervals/<item_name>', methods=['GET'])
+@login_required
+def get_purchase_intervals(item_name):
+    """Get time intervals between purchases for a specific item.
+
+    Query parameters:
+    - category: Optional category filter for similar items
+    """
+    try:
+        category = request.args.get('category')
+        intervals = data_handler.get_item_purchase_intervals(
+            item_name=item_name,
+            category=category
+        )
+
+        return jsonify({
+            'item_name': item_name,
+            'category': category,
+            'intervals': intervals,
+            'count': len(intervals),
+            'average_days': sum(intervals) / len(intervals) if intervals else None
+        })
+    except Exception as e:
+        print(f"Error getting purchase intervals: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to get purchase intervals'}), 500
+
+# =============================================================================
+# ML PREDICTION ENDPOINTS (Phase 1: Baseline Predictor)
+# =============================================================================
+
+@app.route('/api/ml/predictions', methods=['GET'])
+@login_required
+@rate_limit('api')  # 50 requests per minute
+def get_predictions():
+    """Get all active predictions for items.
+
+    Returns predictions with confidence scores, predicted depletion dates,
+    and model metadata.
+    """
+    try:
+        # Get all items with predictions
+        all_items = data_handler.get_shopping_items()
+        predictions = []
+
+        for item in all_items:
+            if item.get('predicted_depletion_date') and item.get('prediction_confidence'):
+                # Calculate days until predicted depletion
+                predicted_date = datetime.fromisoformat(item['predicted_depletion_date'].replace('Z', '+00:00'))
+                days_until = (predicted_date - datetime.utcnow()).days
+
+                predictions.append({
+                    'item_id': item['id'],
+                    'item_name': item['item_name'],
+                    'category': item.get('category'),
+                    'predicted_depletion_date': item['predicted_depletion_date'],
+                    'prediction_confidence': item['prediction_confidence'],
+                    'model_version': item.get('prediction_model_version'),
+                    'days_until_depletion': days_until,
+                    'urgency': 'high' if days_until <= 3 else 'medium' if days_until <= 7 else 'low'
+                })
+
+        # Sort by urgency (soonest first)
+        predictions.sort(key=lambda x: x['days_until_depletion'])
+
+        return jsonify({
+            'predictions': predictions,
+            'total_predictions': len(predictions),
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        app.logger.error(f"Error getting predictions: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to get predictions'}), 500
+
+
+@app.route('/api/ml/predictions/item/<int:item_id>', methods=['GET'])
+@login_required
+@rate_limit('api')
+def get_item_prediction(item_id):
+    """Get prediction for a specific item.
+
+    Args:
+        item_id: Shopping item ID
+
+    Returns:
+        Prediction details including confidence and metadata
+    """
+    try:
+        item = data_handler.get_shopping_item_by_id(item_id)
+        if not item:
+            return jsonify({'error': 'Item not found'}), 404
+
+        if not item.get('predicted_depletion_date'):
+            return jsonify({
+                'item_id': item_id,
+                'item_name': item['item_name'],
+                'has_prediction': False,
+                'message': 'No prediction available (insufficient data)'
+            })
+
+        # Calculate days until predicted depletion
+        predicted_date = datetime.fromisoformat(item['predicted_depletion_date'].replace('Z', '+00:00'))
+        days_until = (predicted_date - datetime.utcnow()).days
+
+        return jsonify({
+            'item_id': item['id'],
+            'item_name': item['item_name'],
+            'category': item.get('category'),
+            'predicted_depletion_date': item['predicted_depletion_date'],
+            'prediction_confidence': item['prediction_confidence'],
+            'model_version': item.get('prediction_model_version'),
+            'days_until_depletion': days_until,
+            'urgency': 'high' if days_until <= 3 else 'medium' if days_until <= 7 else 'low',
+            'has_prediction': True
+        })
+    except Exception as e:
+        app.logger.error(f"Error getting prediction for item {item_id}: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to get item prediction'}), 500
+
+
+@app.route('/api/ml/predictions/metrics', methods=['GET'])
+@login_required
+@rate_limit('api')
+def get_prediction_metrics():
+    """Get model performance metrics.
+
+    Returns:
+        Accuracy metrics including precision@7days, recall, MAE, coverage
+    """
+    try:
+        metrics = prediction_service.evaluate_accuracy()
+
+        return jsonify({
+            'metrics': metrics,
+            'model_version': prediction_service.MODEL_VERSION,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        app.logger.error(f"Error getting prediction metrics: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to get prediction metrics'}), 500
+
+
+@app.route('/api/ml/predictions/refresh', methods=['POST'])
+@login_required
+@csrf_protected
+@rate_limit('api')  # Stricter limit for manual refresh (10 requests per minute)
+def refresh_predictions():
+    """Manually trigger prediction generation for all eligible items.
+
+    This is useful for testing or when users want to immediately update
+    predictions after marking items as depleted.
+
+    Requires:
+        - Authentication
+        - CSRF token
+        - Rate limited to 10 requests per minute
+    """
+    try:
+        # Generate predictions
+        stats = prediction_service.generate_all_predictions(min_purchases=2)
+
+        app.logger.info(f"Manual prediction refresh completed: {stats}")
+
+        return jsonify({
+            'message': 'Predictions refreshed successfully',
+            'stats': stats,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        app.logger.error(f"Error refreshing predictions: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to refresh predictions'}), 500
 
 # =============================================================================
 # HOUSEHOLD CALENDAR MANAGEMENT ENDPOINTS
@@ -3689,15 +3990,7 @@ if __name__ == '__main__':
             test_chores = data_handler.get_chores()
             test_roommates = data_handler.get_roommates()
             print(f"✅ Data loaded: {len(test_chores)} chores, {len(test_roommates)} roommates", flush=True)
-
-            # Initialize scheduler for automatic cycle resets
-            print("⏰ Initializing automatic scheduler...", flush=True)
-            scheduler_service.init_scheduler()
-            scheduler_status = scheduler_service.get_scheduler_status()
-            print(f"✅ Scheduler initialized: {scheduler_status.get('status', 'unknown')}", flush=True)
-            if scheduler_status.get('jobs'):
-                for job in scheduler_status['jobs']:
-                    print(f"   📅 Scheduled: {job['name']} - Next run: {job['next_run_time']}", flush=True)
+            # Scheduler already initialized at module level (see line ~190)
         
         # Start Flask app
         print("🚀 Starting Flask server...", flush=True)

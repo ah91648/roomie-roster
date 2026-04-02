@@ -7,9 +7,10 @@ import atexit
 class SchedulerService:
     """Handles scheduled tasks for the RoomieRoster application."""
 
-    def __init__(self, assignment_logic=None, data_handler=None):
+    def __init__(self, assignment_logic=None, data_handler=None, prediction_service=None):
         self.assignment_logic = assignment_logic
         self.data_handler = data_handler
+        self.prediction_service = prediction_service
         self.scheduler = None
         self.logger = logging.getLogger(__name__)
         
@@ -57,6 +58,18 @@ class SchedulerService:
             minute=0,
             id='cleanup_old_laundry',
             name='Cleanup Old Completed Laundry Slots',
+            replace_existing=True,
+            misfire_grace_time=1800  # Allow up to 30 minutes grace period
+        )
+
+        # Schedule daily grocery prediction generation (runs daily at 3 AM)
+        self.scheduler.add_job(
+            func=self._generate_daily_predictions,
+            trigger='cron',
+            hour=3,
+            minute=0,
+            id='daily_prediction_generation',
+            name='Generate Grocery Depletion Predictions',
             replace_existing=True,
             misfire_grace_time=1800  # Allow up to 30 minutes grace period
         )
@@ -132,6 +145,27 @@ class SchedulerService:
         except Exception as e:
             self.logger.error(f"Error during cleanup of old laundry slots: {e}", exc_info=True)
 
+    def _generate_daily_predictions(self):
+        """Generate grocery depletion predictions for all eligible items."""
+        try:
+            self.logger.info("Starting daily grocery prediction generation")
+
+            if self.prediction_service is None:
+                self.logger.error("Prediction service not available for prediction generation")
+                return
+
+            # Generate predictions for all purchased items
+            stats = self.prediction_service.generate_all_predictions(min_purchases=2)
+
+            self.logger.info(
+                f"Prediction generation completed: {stats['predictions_generated']} predictions "
+                f"generated ({stats['category_fallbacks']} category fallbacks, "
+                f"{stats['insufficient_data']} insufficient data)"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error during daily prediction generation: {e}", exc_info=True)
+
     def _job_executed(self, event):
         """Log successful job execution."""
         self.logger.info(f"Job '{event.job_id}' executed successfully")
@@ -162,6 +196,10 @@ class SchedulerService:
             self.logger.error(f"Error during manual cycle reset: {e}", exc_info=True)
             raise
             
+    def is_scheduler_running(self):
+        """Check if the scheduler is currently running."""
+        return self.scheduler is not None and self.scheduler.running
+
     def get_scheduler_status(self):
         """Get information about the scheduler and its jobs."""
         if self.scheduler is None:

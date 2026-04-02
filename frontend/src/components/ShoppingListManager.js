@@ -23,8 +23,16 @@ const ShoppingListManager = () => {
     estimated_price: '',
     brand_preference: '',
     category: 'General',
-    notes: ''
+    notes: '',
+    // ML tracking fields
+    quantity: '',
+    unit: '',
+    typical_consumption_days: ''
   });
+
+  // Depletion modal state
+  const [showDepletionModal, setShowDepletionModal] = useState(false);
+  const [depletionItem, setDepletionItem] = useState(null);
 
   useEffect(() => {
     loadCategories();
@@ -111,7 +119,11 @@ const ShoppingListManager = () => {
       estimated_price: '',
       brand_preference: '',
       category: 'General',
-      notes: ''
+      notes: '',
+      // ML tracking fields
+      quantity: '',
+      unit: '',
+      typical_consumption_days: ''
     });
     setShowAddForm(false);
   };
@@ -132,7 +144,10 @@ const ShoppingListManager = () => {
       setError(null);
       const itemData = {
         ...formData,
-        estimated_price: formData.estimated_price ? parseFloat(formData.estimated_price) : null
+        estimated_price: formData.estimated_price ? parseFloat(formData.estimated_price) : null,
+        // Parse ML tracking fields
+        quantity: formData.quantity ? parseFloat(formData.quantity) : null,
+        typical_consumption_days: formData.typical_consumption_days ? parseInt(formData.typical_consumption_days) : null
       };
 
       await shoppingListAPI.create(itemData);
@@ -185,6 +200,31 @@ const ShoppingListManager = () => {
       throw new Error('Failed to mark as purchased: ' + (err.response?.data?.error || err.message));
     }
   }, []);
+
+  const handleMarkDepleted = useCallback((item) => {
+    setDepletionItem(item);
+    setShowDepletionModal(true);
+  }, []);
+
+  const handleConfirmDepletion = useCallback(async (feedback) => {
+    try {
+      if (!depletionItem) return;
+
+      const depletionData = {
+        ...feedback
+      };
+
+      await shoppingListAPI.markDepleted(depletionItem.id, depletionData);
+      const metadataResponse = await shoppingListAPI.getMetadata();
+      setLastModified(metadataResponse.data.last_modified);
+      await loadCategorizedItems();
+
+      setShowDepletionModal(false);
+      setDepletionItem(null);
+    } catch (err) {
+      setError('Failed to mark as depleted: ' + (err.response?.data?.error || err.message));
+    }
+  }, [depletionItem]);
 
   const handleAddCategory = useCallback(async (categoryName) => {
     try {
@@ -500,6 +540,112 @@ const ShoppingListManager = () => {
             />
           </div>
 
+          {/* ML Tracking Fields */}
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#f8f9fa',
+            borderRadius: '6px',
+            marginBottom: '16px',
+            border: '1px solid #e9ecef'
+          }}>
+            <div style={{
+              fontSize: '14px',
+              fontWeight: 'bold',
+              marginBottom: '12px',
+              color: '#495057',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span>🔮</span>
+              <span>ML Tracking (Optional - helps predict when you'll run out)</span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 'bold' }}>
+                  Quantity
+                </label>
+                <input
+                  type="number"
+                  name="quantity"
+                  value={formData.quantity}
+                  onChange={handleInputChange}
+                  placeholder="e.g., 1"
+                  step="0.1"
+                  min="0"
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    border: '1px solid #ced4da',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 'bold' }}>
+                  Unit
+                </label>
+                <select
+                  name="unit"
+                  value={formData.unit}
+                  onChange={handleInputChange}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    border: '1px solid #ced4da',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                  }}
+                >
+                  <option value="">Select unit</option>
+                  <option value="gallon">Gallon</option>
+                  <option value="oz">Oz</option>
+                  <option value="lb">Lb</option>
+                  <option value="count">Count</option>
+                  <option value="box">Box</option>
+                  <option value="bag">Bag</option>
+                  <option value="bottle">Bottle</option>
+                  <option value="can">Can</option>
+                  <option value="pack">Pack</option>
+                  <option value="roll">Roll</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 'bold' }}>
+                  Lasts (days)
+                </label>
+                <input
+                  type="number"
+                  name="typical_consumption_days"
+                  value={formData.typical_consumption_days}
+                  onChange={handleInputChange}
+                  placeholder="e.g., 7"
+                  min="1"
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    border: '1px solid #ced4da',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{
+              fontSize: '12px',
+              color: '#6c757d',
+              marginTop: '8px',
+              fontStyle: 'italic'
+            }}>
+              💡 Tip: Track quantity to help predict when you'll run low!
+            </div>
+          </div>
+
           <div style={{ display: 'flex', gap: '12px' }}>
             <button
               type="submit"
@@ -554,6 +700,7 @@ const ShoppingListManager = () => {
             onUpdateItem={handleUpdateItem}
             onDeleteItem={handleDeleteItem}
             onPurchaseItem={handlePurchaseItem}
+            onMarkDepleted={handleMarkDepleted}
             onDeleteCategory={handleDeleteCategory}
             filter={filter}
           />
@@ -572,6 +719,129 @@ const ShoppingListManager = () => {
         >
           <h3 style={{ color: '#6c757d' }}>No items yet</h3>
           <p style={{ color: '#6c757d' }}>Click "Add Item" to start your shopping list</p>
+        </div>
+      )}
+
+      {/* Depletion Confirmation Modal */}
+      {showDepletionModal && depletionItem && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}
+          onClick={() => {
+            setShowDepletionModal(false);
+            setDepletionItem(null);
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              padding: '30px',
+              borderRadius: '12px',
+              maxWidth: '500px',
+              width: '90%',
+              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              marginBottom: '20px'
+            }}>
+              <span style={{ fontSize: '32px' }}>🔮</span>
+              <h3 style={{ margin: 0, color: '#333' }}>Mark as Depleted</h3>
+            </div>
+
+            <p style={{ color: '#666', marginBottom: '20px' }}>
+              Track when <strong>{depletionItem.item_name}</strong> ran out to help predict future needs!
+            </p>
+
+            <div style={{
+              backgroundColor: '#f8f9fa',
+              padding: '16px',
+              borderRadius: '8px',
+              marginBottom: '20px'
+            }}>
+              <div style={{ marginBottom: '12px' }}>
+                <strong>📊 Item Details:</strong>
+              </div>
+              <div style={{ fontSize: '14px', color: '#666' }}>
+                {depletionItem.quantity && depletionItem.unit && (
+                  <p style={{ margin: '4px 0' }}>
+                    • Quantity: {depletionItem.quantity} {depletionItem.unit}
+                  </p>
+                )}
+                {depletionItem.purchase_date && (
+                  <p style={{ margin: '4px 0' }}>
+                    • Purchased: {new Date(depletionItem.purchase_date).toLocaleDateString()}
+                  </p>
+                )}
+                {depletionItem.purchase_date && (
+                  <p style={{ margin: '4px 0' }}>
+                    • Days since purchase: {Math.floor((new Date() - new Date(depletionItem.purchase_date)) / (1000 * 60 * 60 * 24))}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div style={{
+              fontSize: '13px',
+              color: '#6c757d',
+              padding: '12px',
+              backgroundColor: '#e7f3ff',
+              borderRadius: '6px',
+              marginBottom: '20px',
+              borderLeft: '4px solid #007bff'
+            }}>
+              💡 <strong>Why track this?</strong> By marking items as depleted, the ML system learns your consumption patterns and can predict when you'll run low in the future!
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => {
+                  setShowDepletionModal(false);
+                  setDepletionItem(null);
+                }}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleConfirmDepletion({})}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#ff9800',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: 'bold'
+                }}
+              >
+                ✓ Mark as Depleted
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

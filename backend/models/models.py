@@ -434,8 +434,21 @@ class ShoppingItem(BaseModel):
     estimated_price = db.Column(db.Numeric(10, 2), nullable=True)
     actual_price = db.Column(db.Numeric(10, 2), nullable=True)
     brand_preference = db.Column(db.String(100), nullable=True)
+    category = db.Column(db.String(100), nullable=False, server_default='General')
     notes = db.Column(db.Text, nullable=True)
-    
+
+    # ML tracking fields for grocery prediction (Phase 0: Data Collection)
+    quantity = db.Column(db.Float, nullable=True)  # Amount purchased (e.g., 1.0, 2.5)
+    unit = db.Column(db.String(20), nullable=True)  # Unit of measure (gallon, oz, lb, count)
+    last_depleted_date = db.Column(db.DateTime, nullable=True)  # When item ran out
+    typical_consumption_days = db.Column(db.Integer, nullable=True)  # User's initial estimate
+    depletion_feedback = db.Column(db.JSON, nullable=True)  # Prediction accuracy feedback
+
+    # ML prediction fields (Phase 1: Baseline Predictor)
+    predicted_depletion_date = db.Column(db.DateTime, nullable=True)  # When ML predicts item will run out
+    prediction_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0-1)
+    prediction_model_version = db.Column(db.String(50), server_default='sma_v1', nullable=True)  # Model version
+
     # Who added the item
     added_by = db.Column(db.Integer, db.ForeignKey('roommates.id'), nullable=False)
     date_added = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -471,6 +484,34 @@ class ShoppingItem(BaseModel):
         if price is not None and price < 0:
             raise ValueError(f"{key.replace('_', ' ').title()} cannot be negative")
         return price
+
+    @validates('quantity')
+    def validate_quantity(self, key, quantity):
+        """Validate quantity is positive."""
+        if quantity is not None and quantity <= 0:
+            raise ValueError("Quantity must be positive")
+        return quantity
+
+    @validates('typical_consumption_days')
+    def validate_consumption_days(self, key, days):
+        """Validate consumption days is positive."""
+        if days is not None and days <= 0:
+            raise ValueError("Typical consumption days must be positive")
+        return days
+
+    @validates('prediction_confidence')
+    def validate_prediction_confidence(self, key, confidence):
+        """Validate prediction confidence is in 0-1 range."""
+        if confidence is not None and (confidence < 0 or confidence > 1):
+            raise ValueError("Prediction confidence must be between 0 and 1")
+        return confidence
+
+    @validates('category')
+    def validate_category(self, key, category):
+        """Validate category."""
+        if not category or not category.strip():
+            return 'General'  # Default category
+        return category.strip()
     
     def mark_purchased(self, purchased_by_id: int, actual_price: float = None, purchase_notes: str = None):
         """Mark item as purchased."""
@@ -496,6 +537,37 @@ class ShoppingItem(BaseModel):
         self.purchase_date = None
         self.actual_price = None
         return self
+
+    def mark_depleted(self, depleted_date: datetime = None, days_lasted: int = None, feedback: dict = None):
+        """Mark item as depleted (ran out).
+
+        Args:
+            depleted_date: When the item ran out (defaults to now)
+            days_lasted: How many days the item lasted (optional, calculated if purchase_date exists)
+            feedback: User feedback on prediction accuracy (optional)
+        """
+        self.last_depleted_date = depleted_date or datetime.utcnow()
+
+        # Calculate days lasted if not provided and we have purchase date
+        if days_lasted is None and self.purchase_date:
+            delta = self.last_depleted_date - self.purchase_date
+            days_lasted = delta.days
+
+        # Store consumption days for future predictions
+        if days_lasted is not None and days_lasted > 0:
+            self.typical_consumption_days = days_lasted
+
+        # Store feedback if provided
+        if feedback:
+            if self.depletion_feedback is None:
+                self.depletion_feedback = []
+            self.depletion_feedback.append({
+                'depleted_date': self.last_depleted_date.isoformat(),
+                'days_lasted': days_lasted,
+                **feedback
+            })
+
+        return self
     
     @hybrid_property
     def is_purchased(self) -> bool:
@@ -512,23 +584,31 @@ class ShoppingItem(BaseModel):
     def to_dict(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
         """Convert to dictionary with additional computed fields."""
         data = super().to_dict(exclude)
-        
+
         # Add roommate names for convenience
         if self.added_by_roommate:
             data['added_by_name'] = self.added_by_roommate.name
-        
+
         if self.purchased_by_roommate:
             data['purchased_by_name'] = self.purchased_by_roommate.name
-        
+
         data['is_purchased'] = self.is_purchased
         data['price_difference'] = self.price_difference
-        
+
         # Convert Decimal to float for JSON serialization
         if data.get('estimated_price'):
             data['estimated_price'] = float(data['estimated_price'])
         if data.get('actual_price'):
             data['actual_price'] = float(data['actual_price'])
-        
+
+        # Include ML tracking fields
+        data['quantity'] = self.quantity
+        data['unit'] = self.unit
+        data['last_depleted_date'] = self.last_depleted_date.isoformat() if self.last_depleted_date else None
+        data['typical_consumption_days'] = self.typical_consumption_days
+        data['depletion_feedback'] = self.depletion_feedback
+        data['category'] = self.category
+
         return data
     
     def __repr__(self):

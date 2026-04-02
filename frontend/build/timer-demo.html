@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pomodoro Visual Timer Demo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: #f3f4f6;
+      padding: 2rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .demo-container {
+      max-width: 900px;
+      width: 100%;
+    }
+
+    h1 {
+      text-align: center;
+      color: #1f2937;
+      margin-bottom: 2rem;
+    }
+
+    .demo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 2rem;
+      margin-bottom: 2rem;
+    }
+
+    /* Active Session Card */
+    .active-session-card {
+      position: relative;
+      border-radius: 16px;
+      padding: 2rem;
+      color: white;
+      overflow: hidden;
+      transition: background 0.6s ease, box-shadow 0.6s ease;
+    }
+
+    /* Session Type Color Themes */
+    .timer-focus {
+      background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+      box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3);
+    }
+
+    .timer-short-break {
+      background: linear-gradient(135deg, #10b981 0%, #14b8a6 100%);
+      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+    }
+
+    .timer-long-break {
+      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+      box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
+    }
+
+    .timer-warning {
+      background: linear-gradient(135deg, #f59e0b 0%, #eab308 100%);
+      box-shadow: 0 8px 24px rgba(245, 158, 11, 0.4);
+    }
+
+    .timer-critical {
+      background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+      box-shadow: 0 8px 24px rgba(220, 38, 38, 0.5);
+      animation: pulse-glow 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 8px 24px rgba(220, 38, 38, 0.5);
+      }
+      50% {
+        transform: scale(1.02);
+        box-shadow: 0 12px 32px rgba(220, 38, 38, 0.7);
+      }
+    }
+
+    /* Wave Background Animation */
+    .wave-background {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overflow: hidden;
+      z-index: 0;
+    }
+
+    .wave-layer {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 200%;
+      height: 100%;
+      background-repeat: repeat-x;
+      background-size: 50% 100%;
+    }
+
+    .wave-1 {
+      opacity: 0.15;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,60 C150,90 300,30 600,60 C900,90 1050,30 1200,60 L1200,120 L0,120 Z' fill='white'/%3E%3C/svg%3E");
+    }
+
+    .wave-2 {
+      opacity: 0.10;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,40 C200,80 400,0 600,40 C800,80 1000,0 1200,40 L1200,120 L0,120 Z' fill='white'/%3E%3C/svg%3E");
+    }
+
+    .wave-3 {
+      opacity: 0.05;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,80 C250,100 450,40 600,80 C750,100 950,40 1200,80 L1200,120 L0,120 Z' fill='white'/%3E%3C/svg%3E");
+    }
+
+    /* Wave Animation Speeds by Session Type */
+    .wave-focus .wave-1 { animation: wave-drift 8s linear infinite; }
+    .wave-focus .wave-2 { animation: wave-drift 10s linear infinite reverse; }
+    .wave-focus .wave-3 { animation: wave-drift 12s linear infinite; }
+
+    .wave-short-break .wave-1 { animation: wave-drift 12s linear infinite; }
+    .wave-short-break .wave-2 { animation: wave-drift 14s linear infinite reverse; }
+    .wave-short-break .wave-3 { animation: wave-drift 16s linear infinite; }
+
+    .wave-long-break .wave-1 { animation: wave-drift 16s linear infinite; }
+    .wave-long-break .wave-2 { animation: wave-drift 20s linear infinite reverse; }
+    .wave-long-break .wave-3 { animation: wave-drift 24s linear infinite; }
+
+    @keyframes wave-drift {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    .session-header {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .session-header h3 {
+      font-size: 1.3rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .session-status {
+      display: inline-block;
+      padding: 0.3rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Circular Timer Container */
+    .circular-timer-container {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 1.5rem 0;
+    }
+
+    .circular-timer {
+      width: 100%;
+      max-width: 240px;
+      height: auto;
+      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2));
+    }
+
+    .timer-background-circle {
+      transition: stroke 0.3s ease;
+    }
+
+    .timer-progress-circle {
+      stroke: white;
+      transition: stroke-dashoffset 1s linear, stroke 0.6s ease;
+      filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));
+    }
+
+    /* Stroke color changes for different states */
+    .timer-warning .timer-progress-circle {
+      stroke: #fef08a;
+      filter: drop-shadow(0 0 12px rgba(254, 240, 138, 0.8));
+    }
+
+    .timer-critical .timer-progress-circle {
+      stroke: #fca5a5;
+      filter: drop-shadow(0 0 16px rgba(252, 165, 165, 0.9));
+    }
+
+    .timer-center-content {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      width: 100%;
+    }
+
+    .time-remaining {
+      font-size: 2.8rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.05em;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      margin: 0;
+      line-height: 1;
+    }
+
+    .time-label {
+      font-size: 0.75rem;
+      opacity: 0.9;
+      margin-top: 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 500;
+    }
+
+    .progress-percentage {
+      font-size: 0.95rem;
+      opacity: 0.85;
+      margin-top: 0.4rem;
+      font-weight: 600;
+    }
+
+    .demo-label {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      font-size: 0.85rem;
+      opacity: 0.9;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-container">
+    <h1>🍅 Pomodoro Visual Timer Demo</h1>
+
+    <div class="demo-grid">
+      <!-- Focus Session -->
+      <div class="active-session-card timer-focus">
+        <div class="wave-background wave-focus">
+          <div class="wave-layer wave-1"></div>
+          <div class="wave-layer wave-2"></div>
+          <div class="wave-layer wave-3"></div>
+        </div>
+
+        <div class="session-header">
+          <h3>Focus Session</h3>
+          <span class="session-status">in progress</span>
+        </div>
+
+        <div class="circular-timer-container">
+          <svg class="circular-timer" viewBox="0 0 300 300">
+            <circle
+              class="timer-background-circle"
+              cx="150"
+              cy="150"
+              r="135"
+              fill="none"
+              stroke="rgba(255, 255, 255, 0.2)"
+              strokeWidth="12"
+            />
+            <circle
+              class="timer-progress-circle"
+              cx="150"
+              cy="150"
+              r="135"
+              fill="none"
+              strokeWidth="12"
+              strokeLinecap="round"
+              stroke-dasharray="847.8"
+              stroke-dashoffset="254.34"
+              transform="rotate(-90 150 150)"
+            />
+          </svg>
+
+          <div class="timer-center-content">
+            <div class="time-remaining">18:30</div>
+            <div class="time-label">remaining</div>
+            <div class="progress-percentage">70%</div>
+          </div>
+        </div>
+
+        <div class="demo-label">Red/Orange gradient • Fast waves</div>
+      </div>
+
+      <!-- Short Break -->
+      <div class="active-session-card timer-short-break">
+        <div class="wave-background wave-short-break">
+          <div class="wave-layer wave-1"></div>
+          <div class="wave-layer wave-2"></div>
+          <div class="wave-layer wave-3"></div>
+        </div>
+
+        <div class="session-header">
+          <h3>Short Break</h3>
+          <span class="session-status">in progress</span>
+        </div>
+
+        <div class="circular-timer-container">
+          <svg class="circular-timer" viewBox="0 0 300 300">
+            <circle
+              class="timer-background-circle"
+              cx="150"
+              cy="150"
+              r="135"
+              fill="none"
+              stroke="rgba(255, 255, 255, 0.2)"
+              strokeWidth="12"
+            />
+            <circle
+              class="timer-progress-circle"
+              cx="150"
+              cy="150"
+              r="135"
+              fill="none"
+              strokeWidth="12"
+              strokeLinecap="round"
+              stroke-dasharray="847.8"
+              stroke-dashoffset="423.9"
+              transform="rotate(-90 150 150)"
+            />
+          </svg>
+
+          <div class="timer-center-content">
+            <div class="time-remaining">02:30</div>
+            <div class="time-label">remaining</div>
+            <div class="progress-percentage">50%</div>
+          </div>
+        </div>
+
+        <div class="demo-label">Green gradient • Medium waves</div>
+      </div>
+
+      <!-- Long Break -->
+      <div class="active-session-card timer-long-break">
+        <div class="wave-background wave-long-break">
+          <div class="wave-layer wave-1"></div>
+          <div class="wave-layer wave-2"></div>
+          <div class="wave-layer wave-3"></div>
+        </div>
+
+        <div class="session-header">
+          <h3>Long Break</h3>
+          <span class="session-status">in progress</span>
+        </div>
+
+        <div class="circular-timer-container">
+          <svg class="circular-timer" viewBox="0 0 300 300">
+            <circle
+              class="timer-background-circle"
+              cx="150"
+              cy="150"
+              r="135"
+              fill="none"
+              stroke="rgba(255, 255, 255, 0.2)"
+              strokeWidth="12"
+            />
+            <circle
+              class="timer-progress-circle"
+              cx="150"
+              cy="150"
+              r="135"
+              fill="none"
+              strokeWidth="12"
+              strokeLinecap="round"
+              stroke-dasharray="847.8"
+              stroke-dashoffset="592.46"
+              transform="rotate(-90 150 150)"
+            />
+          </svg>
+
+          <div class="timer-center-content">
+            <div class="time-remaining">04:30</div>
+            <div class="time-label">remaining</div>
+            <div class="progress-percentage">30%</div>
+          </div>
+        </div>
+
+        <div class="demo-label">Blue gradient • Slow waves</div>
+      </div>
+
+      <!-- Warning State (5 min remaining) -->
+      <div class="active-session-card timer-warning">
+        <div class="wave-background wave-focus">
+          <div class="wave-layer wave-1"></div>
+          <div class="wave-layer wave-2"></div>
+          <div class="wave-layer wave-3"></div>
+        </div>
+
+        <div class="session-header">
+          <h3>Focus Session - Warning</h3>
+          <span class="session-status">in progress</span>
+        </div>
+
+        <div class="circular-timer-container">
+          <svg class="circular-timer" viewBox="0 0 300 300">
+            <circle
+              class="timer-background-circle"
+              cx="150"
+              cy="150"
+              r="135"
+              fill="none"
+              stroke="rgba(255, 255, 255, 0.2)"
+              strokeWidth="12"
+            />
+            <circle
+              class="timer-progress-circle"
+              cx="150"
+              cy="150"
+              r="135"
+              fill="none"
+              strokeWidth="12"
+              strokeLinecap="round"
+              stroke-dasharray="847.8"
+              stroke-dashoffset="677.46"
+              transform="rotate(-90 150 150)"
+            />
+          </svg>
+
+          <div class="timer-center-content">
+            <div class="time-remaining">04:30</div>
+            <div class="time-label">remaining</div>
+            <div class="progress-percentage">20%</div>
+          </div>
+        </div>
+
+        <div class="demo-label">⚠️ Yellow gradient • ≤ 5 minutes</div>
+      </div>
+
+      <!-- Critical State (1 min remaining) -->
+      <div class="active-session-card timer-critical">
+        <div class="wave-background wave-focus">
+          <div class="wave-layer wave-1"></div>
+          <div class="wave-layer wave-2"></div>
+          <div class="wave-layer wave-3"></div>
+        </div>
+
+        <div class="session-header">
+          <h3>Focus Session - Critical</h3>
+          <span class="session-status">in progress</span>
+        </div>
+
+        <div class="circular-timer-container">
+          <svg class="circular-timer" viewBox="0 0 300 300">
+            <circle
+              class="timer-background-circle"
+              cx="150"
+              cy="150"
+              r="135"
+              fill="none"
+              stroke="rgba(255, 255, 255, 0.2)"
+              strokeWidth="12"
+            />
+            <circle
+              class="timer-progress-circle"
+              cx="150"
+              cy="150"
+              r="135"
+              fill="none"
+              strokeWidth="12"
+              strokeLinecap="round"
+              stroke-dasharray="847.8"
+              stroke-dashoffset="805.41"
+              transform="rotate(-90 150 150)"
+            />
+          </svg>
+
+          <div class="timer-center-content">
+            <div class="time-remaining">00:45</div>
+            <div class="time-label">remaining</div>
+            <div class="progress-percentage">5%</div>
+          </div>
+        </div>
+
+        <div class="demo-label">🔴 Deep red • Pulsing glow • ≤ 1 minute</div>
+      </div>
+    </div>
+
+    <div style="background: white; padding: 1.5rem; border-radius: 12px; margin-top: 2rem;">
+      <h3 style="color: #1f2937; margin-bottom: 1rem;">✨ Visual Timer Features</h3>
+      <ul style="color: #4b5563; line-height: 1.8; padding-left: 1.5rem;">
+        <li><strong>Circular Progress Ring:</strong> Depletes clockwise showing remaining time</li>
+        <li><strong>Session-Specific Colors:</strong> Red/orange (focus), green (short break), blue (long break)</li>
+        <li><strong>Animated Waves:</strong> 3-layer wave effect with session-specific speeds</li>
+        <li><strong>Dynamic Warnings:</strong> Changes to yellow at 5 minutes, red with pulse at 1 minute</li>
+        <li><strong>Real-Time Updates:</strong> Smooth 1-second countdown with percentage display</li>
+        <li><strong>Glow Effects:</strong> Subtle drop shadows and filters enhance visibility</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

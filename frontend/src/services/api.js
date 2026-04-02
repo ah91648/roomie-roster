@@ -114,6 +114,16 @@ export const shoppingListAPI = {
   renameCategory: (oldName, newName) => api.put(`/shopping-list/categories/${encodeURIComponent(oldName)}`, { new_name: newName }),
   deleteCategory: (categoryName) => api.delete(`/shopping-list/categories/${encodeURIComponent(categoryName)}`),
   getByCategory: (status = null) => api.get(`/shopping-list/by-category${status ? `?status=${status}` : ''}`),
+  // ML Grocery Prediction
+  markDepleted: (id, depletionData) => api.post(`/shopping-list/${id}/mark-depleted`, depletionData),
+};
+
+// ML Grocery Prediction API
+export const mlAPI = {
+  getDepletionHistory: (days = 90) => api.get(`/ml/depletion-history?days=${days}`),
+  getTrainingData: (minPurchases = 2) => api.get(`/ml/training-data?min_purchases=${minPurchases}`),
+  getPurchaseIntervals: (itemName, category = null) =>
+    api.get(`/ml/purchase-intervals/${encodeURIComponent(itemName)}${category ? `?category=${encodeURIComponent(category)}` : ''}`),
 };
 
 // Request API

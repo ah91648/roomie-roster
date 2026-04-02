@@ -6,7 +6,8 @@ const CollapsibleShoppingItem = ({
   roommates,
   onUpdate,
   onDelete,
-  onPurchase
+  onPurchase,
+  onMarkDepleted
 }) => {
   const { showRoommateLink, needsRoommateLink } = useAuth();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -487,6 +488,28 @@ const CollapsibleShoppingItem = ({
                     }}
                   >
                     Mark Purchased
+                  </button>
+                )}
+                {isPurchased && onMarkDepleted && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMarkDepleted(item);
+                    }}
+                    style={{
+                      padding: '8px 16px',
+                      backgroundColor: '#ff9800',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span>🔮</span>
+                    <span>Mark Depleted</span>
                   </button>
                 )}
                 <button

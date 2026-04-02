@@ -53,15 +53,17 @@ const PomodoroTimer = () => {
     loadInitialData();
   }, []);
 
-  // Poll for active session
+  // Poll for active session (only when user is linked to a roommate)
   useEffect(() => {
+    if (!user?.roommate) return; // Don't poll if not linked
+
     pollActiveSession();
     pollIntervalRef.current = setInterval(pollActiveSession, 2000);
 
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
-  }, []);
+  }, [user?.roommate]);
 
   // Watch for roommate linking completion
   useEffect(() => {
@@ -133,6 +135,14 @@ const PomodoroTimer = () => {
 
       setActiveSession(session);
     } catch (err) {
+      // Stop polling on auth/linking errors to prevent flooding
+      if (err.response?.status === 403 || err.response?.status === 401) {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+        return;
+      }
       console.error('Failed to poll active session:', err);
     }
   };

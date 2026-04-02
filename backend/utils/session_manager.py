@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from typing import Dict, Optional, Callable
 from flask import session, request, jsonify, current_app
+from flask_session import Session
 from .auth_service import AuthService
 from .data_handler import DataHandler
 from .dev_auth_bypass import dev_auth_bypass, get_bypass_status
@@ -38,9 +39,26 @@ class SessionManager:
             'SESSION_COOKIE_HTTPONLY': True,  # Prevent XSS access to session cookie
             'SESSION_COOKIE_SAMESITE': 'Lax',  # CSRF protection
             'PERMANENT_SESSION_LIFETIME': timedelta(days=30),  # Session expiry
-            'SESSION_TYPE': 'filesystem',  # Store sessions on filesystem (could upgrade to Redis)
         })
-        
+
+        # Use database-backed sessions in production (survives container restarts)
+        # Fall back to filesystem sessions in development
+        if os.getenv('DATABASE_URL'):
+            from .database_models import db
+            app.config.update({
+                'SESSION_TYPE': 'sqlalchemy',
+                'SESSION_SQLALCHEMY': db,
+                'SESSION_SQLALCHEMY_TABLE': 'flask_sessions',
+                'SESSION_USE_SIGNER': True,
+            })
+            print("✅ Using database-backed sessions (PostgreSQL)")
+        else:
+            app.config['SESSION_TYPE'] = 'filesystem'
+            print("ℹ️  Using filesystem sessions (development mode)")
+
+        # Initialize Flask-Session
+        Session(app)
+
         # Store references
         app.session_manager = self
         

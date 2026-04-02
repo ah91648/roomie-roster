@@ -630,7 +630,11 @@ class DatabaseDataHandler:
                     added_by_name=item['added_by_name'],
                     notes=item.get('notes'),
                     status=item.get('status', 'active'),
-                    date_added=datetime.fromisoformat(item['date_added']) if item.get('date_added') else datetime.utcnow()
+                    date_added=datetime.fromisoformat(item['date_added']) if item.get('date_added') else datetime.utcnow(),
+                    # ML tracking fields
+                    quantity=item.get('quantity'),
+                    unit=item.get('unit'),
+                    typical_consumption_days=item.get('typical_consumption_days')
                 )
                 db.session.add(new_item)
                 db.session.commit()
@@ -754,6 +758,14 @@ class DatabaseDataHandler:
                 item.category = updated_item.get('category', item.category)
                 item.notes = updated_item.get('notes')
                 item.status = updated_item.get('status', 'active')
+
+                # Update ML tracking fields if provided
+                if 'quantity' in updated_item:
+                    item.quantity = updated_item.get('quantity')
+                if 'unit' in updated_item:
+                    item.unit = updated_item.get('unit')
+                if 'typical_consumption_days' in updated_item:
+                    item.typical_consumption_days = updated_item.get('typical_consumption_days')
 
                 db.session.commit()
                 return item.to_dict()
@@ -948,6 +960,397 @@ class DatabaseDataHandler:
 
             self._write_json(self.shopping_list_file, items)
             return cleared_count
+
+    # ============================================================================
+    # ML Tracking Methods for Grocery Prediction
+    # ============================================================================
+
+    def mark_item_depleted(self, item_id: int, depleted_date: datetime = None,
+                          days_lasted: int = None, feedback: dict = None) -> Dict:
+        """Mark a shopping list item as depleted (ran out).
+
+        Args:
+            item_id: ID of the shopping item
+            depleted_date: When the item ran out (defaults to now)
+            days_lasted: How many days the item lasted (calculated if not provided)
+            feedback: User feedback on prediction accuracy
+
+        Returns:
+            Updated item dictionary
+        """
+        if self.use_database:
+            try:
+                item = ShoppingItem.query.filter_by(id=item_id).first()
+                if not item:
+                    raise ValueError(f"Shopping item with id {item_id} not found")
+
+                item.mark_depleted(depleted_date, days_lasted, feedback)
+                db.session.commit()
+                return item.to_dict()
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error marking item depleted: {e}")
+                db.session.rollback()
+                raise
+        else:
+            items = self.get_shopping_list()
+            for item in items:
+                if item['id'] == item_id:
+                    depleted_date = depleted_date or datetime.now()
+                    item['last_depleted_date'] = depleted_date.isoformat()
+
+                    # Calculate days lasted if not provided and we have purchase date
+                    if days_lasted is None and item.get('purchase_date'):
+                        purchase_date = datetime.fromisoformat(item['purchase_date'])
+                        delta = depleted_date - purchase_date
+                        days_lasted = delta.days
+
+                    if days_lasted is not None and days_lasted > 0:
+                        item['typical_consumption_days'] = days_lasted
+
+                    # Store feedback
+                    if feedback:
+                        if 'depletion_feedback' not in item or item['depletion_feedback'] is None:
+                            item['depletion_feedback'] = []
+                        item['depletion_feedback'].append({
+                            'depleted_date': depleted_date.isoformat(),
+                            'days_lasted': days_lasted,
+                            **feedback
+                        })
+
+                    self._write_json(self.shopping_list_file, items)
+                    return item
+
+            raise ValueError(f"Shopping item with id {item_id} not found")
+
+    def get_depletion_history(self, days: int = 90) -> List[Dict]:
+        """Get depletion history for the last N days (for ML training).
+
+        Args:
+            days: Number of days to look back (default 90)
+
+        Returns:
+            List of items with depletion data
+        """
+        from datetime import timedelta
+
+        if self.use_database:
+            try:
+                cutoff_date = datetime.utcnow() - timedelta(days=days)
+                items = ShoppingItem.query.filter(
+                    ShoppingItem.last_depleted_date.isnot(None),
+                    ShoppingItem.last_depleted_date >= cutoff_date
+                ).order_by(ShoppingItem.last_depleted_date.desc()).all()
+                return [item.to_dict() for item in items]
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error getting depletion history: {e}")
+                return []
+        else:
+            items = self.get_shopping_list()
+            cutoff_date = datetime.now() - timedelta(days=days)
+
+            depletion_history = []
+            for item in items:
+                if item.get('last_depleted_date'):
+                    depleted_date = datetime.fromisoformat(item['last_depleted_date'])
+                    if depleted_date >= cutoff_date:
+                        depletion_history.append(item)
+
+            depletion_history.sort(key=lambda x: x['last_depleted_date'], reverse=True)
+            return depletion_history
+
+    def get_item_purchase_intervals(self, item_name: str, category: str = None) -> List[int]:
+        """Get time intervals between purchases for a specific item or similar items.
+
+        Args:
+            item_name: Name of the item to analyze
+            category: Optional category filter for similar items
+
+        Returns:
+            List of days between purchases
+        """
+        if self.use_database:
+            try:
+                # Query for items with matching name or category
+                query = ShoppingItem.query.filter(
+                    ShoppingItem.status == 'purchased',
+                    ShoppingItem.purchase_date.isnot(None)
+                )
+
+                if category:
+                    query = query.filter(ShoppingItem.category == category)
+                else:
+                    # Fuzzy match on item name
+                    query = query.filter(ShoppingItem.item_name.ilike(f'%{item_name}%'))
+
+                items = query.order_by(ShoppingItem.purchase_date.asc()).all()
+
+                # Calculate intervals between consecutive purchases
+                intervals = []
+                for i in range(1, len(items)):
+                    delta = items[i].purchase_date - items[i-1].purchase_date
+                    intervals.append(delta.days)
+
+                return intervals
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error getting purchase intervals: {e}")
+                return []
+        else:
+            items = self.get_shopping_list()
+
+            # Filter items by name or category
+            filtered_items = []
+            for item in items:
+                if item.get('status') == 'purchased' and item.get('purchase_date'):
+                    if category and item.get('category') == category:
+                        filtered_items.append(item)
+                    elif item_name.lower() in item.get('item_name', '').lower():
+                        filtered_items.append(item)
+
+            # Sort by purchase date
+            filtered_items.sort(key=lambda x: x['purchase_date'])
+
+            # Calculate intervals
+            intervals = []
+            for i in range(1, len(filtered_items)):
+                date1 = datetime.fromisoformat(filtered_items[i-1]['purchase_date'])
+                date2 = datetime.fromisoformat(filtered_items[i]['purchase_date'])
+                delta = date2 - date1
+                intervals.append(delta.days)
+
+            return intervals
+
+    def get_ml_training_data(self, min_purchases: int = 2) -> List[Dict]:
+        """Get aggregated data for ML model training.
+
+        Args:
+            min_purchases: Minimum number of purchases required for an item to be included
+
+        Returns:
+            List of items with sufficient purchase history and ML features
+        """
+        if self.use_database:
+            try:
+                from sqlalchemy import func
+
+                # Get items with at least min_purchases purchases
+                items_with_history = db.session.query(
+                    ShoppingItem.item_name,
+                    ShoppingItem.category,
+                    ShoppingItem.brand_preference,
+                    func.count(ShoppingItem.id).label('purchase_count'),
+                    func.avg(ShoppingItem.typical_consumption_days).label('avg_consumption_days'),
+                    func.max(ShoppingItem.purchase_date).label('last_purchase_date'),
+                    func.max(ShoppingItem.last_depleted_date).label('last_depleted_date')
+                ).filter(
+                    ShoppingItem.status == 'purchased'
+                ).group_by(
+                    ShoppingItem.item_name,
+                    ShoppingItem.category,
+                    ShoppingItem.brand_preference
+                ).having(
+                    func.count(ShoppingItem.id) >= min_purchases
+                ).all()
+
+                # Convert to dictionaries
+                training_data = []
+                for item in items_with_history:
+                    training_data.append({
+                        'item_name': item.item_name,
+                        'category': item.category,
+                        'brand_preference': item.brand_preference,
+                        'purchase_count': item.purchase_count,
+                        'avg_consumption_days': float(item.avg_consumption_days) if item.avg_consumption_days else None,
+                        'last_purchase_date': item.last_purchase_date.isoformat() if item.last_purchase_date else None,
+                        'last_depleted_date': item.last_depleted_date.isoformat() if item.last_depleted_date else None,
+                        'purchase_intervals': self.get_item_purchase_intervals(item.item_name, item.category)
+                    })
+
+                return training_data
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error getting ML training data: {e}")
+                return []
+        else:
+            items = self.get_shopping_list()
+
+            # Group items by name
+            item_groups = {}
+            for item in items:
+                if item.get('status') == 'purchased':
+                    key = item.get('item_name', '')
+                    if key not in item_groups:
+                        item_groups[key] = []
+                    item_groups[key].append(item)
+
+            # Filter groups with sufficient purchases and calculate features
+            training_data = []
+            for item_name, group in item_groups.items():
+                if len(group) >= min_purchases:
+                    # Calculate average consumption days
+                    consumption_days = [item.get('typical_consumption_days') for item in group
+                                      if item.get('typical_consumption_days')]
+                    avg_consumption = sum(consumption_days) / len(consumption_days) if consumption_days else None
+
+                    # Get last dates
+                    group.sort(key=lambda x: x.get('purchase_date', ''), reverse=True)
+                    last_item = group[0]
+
+                    training_data.append({
+                        'item_name': item_name,
+                        'category': last_item.get('category'),
+                        'brand_preference': last_item.get('brand_preference'),
+                        'purchase_count': len(group),
+                        'avg_consumption_days': avg_consumption,
+                        'last_purchase_date': last_item.get('purchase_date'),
+                        'last_depleted_date': last_item.get('last_depleted_date'),
+                        'purchase_intervals': self.get_item_purchase_intervals(item_name)
+                    })
+
+            return training_data
+
+    # ===== Phase 1: Prediction Service Support Methods =====
+
+    def get_shopping_item_by_id(self, item_id: int) -> Optional[Dict]:
+        """Get a single shopping item by ID.
+
+        Args:
+            item_id: Shopping item ID
+
+        Returns:
+            Item dictionary or None if not found
+        """
+        if self.use_database:
+            try:
+                item = ShoppingItem.query.filter_by(id=item_id).first()
+                return item.to_dict() if item else None
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error getting shopping item {item_id}: {e}")
+                return None
+        else:
+            items = self.get_shopping_list()
+            return next((item for item in items if item.get('id') == item_id), None)
+
+    def get_shopping_items(self, status: str = None, category: str = None) -> List[Dict]:
+        """Get shopping items with optional filtering.
+
+        Args:
+            status: Filter by status (active, purchased, etc.)
+            category: Filter by category
+
+        Returns:
+            List of matching items
+        """
+        if self.use_database:
+            try:
+                query = ShoppingItem.query
+
+                if status:
+                    query = query.filter_by(status=status)
+                if category:
+                    query = query.filter_by(category=category)
+
+                items = query.all()
+                return [item.to_dict() for item in items]
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error getting shopping items: {e}")
+                return []
+        else:
+            items = self.get_shopping_list()
+
+            # Apply filters
+            if status:
+                items = [item for item in items if item.get('status') == status]
+            if category:
+                items = [item for item in items if item.get('category') == category]
+
+            return items
+
+    def get_item_purchase_intervals_by_id(self, item_id: int) -> List[int]:
+        """Get time intervals between purchases for a specific item ID.
+
+        This tracks purchase history for the EXACT item (by ID), not similar items.
+        Used for Phase 1 prediction service.
+
+        Args:
+            item_id: Shopping item ID
+
+        Returns:
+            List of days between consecutive purchases (empty if insufficient data)
+        """
+        if self.use_database:
+            try:
+                # Get the item to find its name and category
+                item = ShoppingItem.query.filter_by(id=item_id).first()
+                if not item:
+                    return []
+
+                # Find all purchases of this item (by name + category match)
+                similar_items = ShoppingItem.query.filter_by(
+                    item_name=item.item_name,
+                    category=item.category,
+                    status='purchased'
+                ).filter(
+                    ShoppingItem.purchase_date.isnot(None)
+                ).order_by(ShoppingItem.purchase_date.asc()).all()
+
+                # Calculate intervals between consecutive purchases
+                intervals = []
+                for i in range(1, len(similar_items)):
+                    delta = similar_items[i].purchase_date - similar_items[i-1].purchase_date
+                    intervals.append(delta.days)
+
+                return intervals
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error getting purchase intervals for item {item_id}: {e}")
+                return []
+        else:
+            # Get the item
+            item = self.get_shopping_item_by_id(item_id)
+            if not item:
+                return []
+
+            # Use the existing name-based method
+            return self.get_item_purchase_intervals(item.get('item_name', ''), item.get('category'))
+
+    def update_shopping_item(self, item_id: int, data: Dict) -> Optional[Dict]:
+        """Update a shopping item with new data (including predictions).
+
+        Args:
+            item_id: Shopping item ID
+            data: Dictionary of fields to update
+
+        Returns:
+            Updated item dictionary or None if not found
+        """
+        if self.use_database:
+            try:
+                item = ShoppingItem.query.filter_by(id=item_id).first()
+                if not item:
+                    return None
+
+                # Update allowed fields
+                for key, value in data.items():
+                    if hasattr(item, key):
+                        # Convert ISO strings to datetime if needed
+                        if key in ['predicted_depletion_date', 'last_depleted_date', 'purchase_date']:
+                            if isinstance(value, str):
+                                value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                        setattr(item, key, value)
+
+                db.session.commit()
+                return item.to_dict()
+            except SQLAlchemyError as e:
+                self.logger.error(f"Database error updating shopping item {item_id}: {e}")
+                db.session.rollback()
+                return None
+        else:
+            items = self.get_shopping_list()
+            for i, item in enumerate(items):
+                if item.get('id') == item_id:
+                    # Update fields
+                    items[i].update(data)
+                    self._write_json(self.shopping_list_file, items)
+                    return items[i]
+            return None
 
     def get_shopping_list_metadata(self) -> Dict:
         """Get metadata about the shopping list including last modification time."""
